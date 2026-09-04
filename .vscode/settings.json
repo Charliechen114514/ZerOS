@@ -5,5 +5,6 @@
     // clangd 探测真实系统头路径。它是进程旗标,进不了 .clangd,只能放这。
     "clangd.arguments": [
         "--query-driver=**/arm-none-eabi-g*"
-    ]
+    ],
+    "terminal.integrated.allowChords": false
 }

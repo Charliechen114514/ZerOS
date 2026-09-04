@@ -1,0 +1,18 @@
+# 注入旗标按语言分块:.hpp/.cpp 按 C++23(conf HAL 头是 C 语境,吃 C++ 旗标会拒)。
+# 起因:孤立头文件(未被任何 TU 包含)吃 clangd fallback,标准停在 gnu++17,
+# concept 等 C++20 语法误报;注入与 CMake CXX_STANDARD 23 一致的旗标后,
+# 对已在 compile_commands.json 的 TU 是同值覆盖,无行为变化。
+---
+If:
+  PathMatch: [.*\.hpp, .*\.cpp]
+CompileFlags:
+  Add: [-std=c++23]
+---
+If:
+  PathMatch: .*\.h
+CompileFlags:
+  Add: [-std=c2x]
+---
+Diagnostics:
+  UnusedIncludes: None
+  MissingIncludes: None
