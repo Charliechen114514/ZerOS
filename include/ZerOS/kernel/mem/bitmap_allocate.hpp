@@ -26,6 +26,9 @@ struct BitmapPool {
     static constexpr std::size_t BUFFER_SIZE = block_size * block_cnt;
     static constexpr std::size_t BITMAP_L2_SIZE = (block_cnt + 31) / 32;
     static constexpr std::size_t BLOCK_SIZE = block_size;
+    // buffer_ is max-aligned (ALL_ALIGNED), so every block start is too;
+    // Make<> static_asserts objects against this (see typeable.hpp).
+    static constexpr std::size_t BLOCK_ALIGN = alignof(std::max_align_t);
 
     static_assert(BLOCK_SIZE % alignof(std::max_align_t) == 0,
                   "block size must keep every block max-aligned");
