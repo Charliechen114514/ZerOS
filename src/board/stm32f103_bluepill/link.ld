@@ -35,6 +35,13 @@ SECTIONS
         *(.ARM.exidx*)
     } > FLASH
 
+    .init_array :
+    {
+        KEEP(*(.init_array*))
+    } > FLASH
+
+    ASSERT(SIZEOF(.init_array) == 0, "runtime global constructors banned (use constinit)")
+
     /* 初始化数据:LMA 在 Flash,启动时拷贝到 RAM */
     .data :
     {

@@ -1,4 +1,5 @@
 // stm32f103_bluepill 启动:向量表 + .data 拷贝 + .bss 清零 + 故障兜底
+#include <cstddef>
 #include <cstdint>
 
 #include "stm32f1xx.h"
@@ -37,6 +38,14 @@ void fault_handler() {
     for (;;) {
         __WFI();
     }
+}
+
+void* memset(void* dst, int value, std::size_t n) {
+    auto* d = static_cast<unsigned char*>(dst);
+    while (n-- != 0) {
+        *d++ = static_cast<unsigned char>(value);
+    }
+    return dst;
 }
 } // extern "C"
 

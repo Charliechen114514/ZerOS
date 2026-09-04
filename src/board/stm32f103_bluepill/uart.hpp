@@ -10,6 +10,8 @@ namespace ZerOS::board {
 inline void uart1_init() {
     // RCC 在 Renode 为假值(就绪位恒 1),此行主要服务真机
     RCC->APB2ENR |= RCC_APB2ENR_USART1EN | RCC_APB2ENR_IOPAEN;
+    GPIOA->CRH = (GPIOA->CRH & ~(GPIO_CRH_MODE9 | GPIO_CRH_CNF9)) | GPIO_CRH_MODE9_1 | GPIO_CRH_CNF9_1;
+    USART1->BRR = 72'000'000 / 115'200;
     USART1->CR1 = USART_CR1_UE | USART_CR1_TE;
 }
 

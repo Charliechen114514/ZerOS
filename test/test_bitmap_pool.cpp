@@ -68,7 +68,7 @@ TEST_CASE("poison catches write-after-free", "[pool][poison]") {
     auto* p = static_cast<unsigned char*>(*v);
     pool.raw_deallocate(p); // poison-on-free fills the block
 
-    p[3] ^= 0xFF;           // sneak write into a free block
+    p[3] ^= 0xFF; // sneak write into a free block
     auto r = pool.raw_allocate();
     CHECK_FALSE(r.has_value());
     CHECK(r.error() == MemoryAllocationError::Poisoned);
@@ -91,7 +91,7 @@ TEST_CASE("try_allocate reports exhaustion as nullptr", "[pool]") {
 
     CHECK(pool.try_allocate() != nullptr);
     CHECK(pool.try_allocate() != nullptr);
-    CHECK(pool.try_allocate() == nullptr); // ISR-safe surface, no expected<>
+    CHECK(pool.try_allocate() == nullptr);
 }
 
 TEST_CASE("randomized torture: interleaved alloc/free keeps invariants", "[pool][fuzz]") {

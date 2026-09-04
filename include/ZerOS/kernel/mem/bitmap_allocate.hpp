@@ -72,7 +72,6 @@ struct BitmapPool {
         return MemoryAllocationError::Ok;
     }
 
-    // For ISR allocations: no expected, failure simply reported as nullptr
     void* try_allocate() {
         auto res = raw_allocate();
         return res ? *res : nullptr;
@@ -171,7 +170,7 @@ struct BitmapPool {
     base::Bitmap<block_cnt> bitmap_l2_;      // one bit per block: 1 = occupied
     base::Bitmap<BITMAP_L2_SIZE> bitmap_l1_; // one bit per l2 word: 1 = that word is full
     base::Bitmap<block_cnt> ever_poisoned_;  // 1 = block went through a poison-on-free cycle
-    std::size_t used_ = 0; // block we have been used
+    std::size_t used_ = 0;                   // block we have been used
 };
 
 #undef ALL_ALIGNED // OK, dont leek this out

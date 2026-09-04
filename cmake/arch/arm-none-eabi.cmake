@@ -25,4 +25,5 @@ add_compile_options(
     -fdata-sections
     $<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions>
     $<$<COMPILE_LANGUAGE:CXX>:-fno-rtti>
+    $<$<COMPILE_LANGUAGE:CXX>:-fno-threadsafe-statics>
 )
