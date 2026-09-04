@@ -1,0 +1,22 @@
+# Blue Pill @ Renode 运行脚本
+# 用法(无头,日志落盘):
+#   renode --console --disable-xwt -e "logFile @run.log" \
+#     -e '$bin=@build/zeros-bluepill.elf' \
+#     -e "include @src/board/stm32f103_bluepill/sim/renode/bluepill.resc" -e "start" -e "sleep 5" -e "quit"
+# $bin 在 include 之前设置即可覆盖默认路径;须在仓库根目录下运行。
+
+using sysbus
+
+mach create "bluepill"
+machine LoadPlatformDescription @src/board/stm32f103_bluepill/sim/renode/bluepill.repl
+
+$bin?=@build/zeros-bluepill.elf
+
+showAnalyzer usart1
+
+macro reset
+"""
+    sysbus LoadELF $bin
+"""
+
+runMacro $reset

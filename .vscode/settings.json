@@ -1,0 +1,9 @@
+{
+    // clangd 对 arm-none-eabi 目标默认猜 libc++ 布局(c++/v1),本机工具链
+    // 实为 libstdc++ 布局(c++/<版本>),不问真编译器就找不到 <cstdint>
+    // 等标准头。--query-driver 放行 arm gcc/g++(装在 /usr/sbin),让
+    // clangd 探测真实系统头路径。它是进程旗标,进不了 .clangd,只能放这。
+    "clangd.arguments": [
+        "--query-driver=**/arm-none-eabi-g*"
+    ]
+}

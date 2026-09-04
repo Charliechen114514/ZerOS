@@ -1,2 +1,7 @@
 # local tooling
 .claude/
+# build artifacts
+build/
+
+# Ignores Log files
+*.log

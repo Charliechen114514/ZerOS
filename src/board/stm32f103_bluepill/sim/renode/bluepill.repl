@@ -1,0 +1,147 @@
+// Blue Pill — STM32F103C8T6(中等容量,48 脚)Renode 平台模型
+// 派生自 renode/platforms/cpus/stm32f103.repl(高密度超集,本机 Renode 1.16.1),
+// 按 C8T6 实际配置裁剪,让模拟器强制真机约束(越界即报,不再靠链接脚本自觉):
+//   Flash 64K @ 0x08000000(上游是 0x0 起 512M 超集窗口,已砍)
+//   SRAM  20K @ 0x20000000(上游声明 256M,已砍)
+//   USART1-3(砍掉仅高密度才有的 UART4/5)
+//   TIM1-4(砍掉 TIM5-14);定时器→GPIO 复用映射同步裁掉 D/E/F/G 口
+//   GPIO A-C 为真(48 脚封装;PD0/PD1 被 8MHz 晶振占用);
+//   D-G 为幽灵口:上游 STM32F1AFIO 构造函数硬性要求恰好 7 个口(源码实证
+//   gpioPorts[3..6] 直接索引),不给就崩。真机 C8T6 没有这四个口——
+//   固件若访问它们,真机会 BusFault,本模型会静默成功,属已知失真。
+//   I2C1-2、AFIO、EXTI 19 线、NVIC+SysTick(72MHz) 保留
+//   FSMC 砍掉(高密度才有)
+// 板载:PC13 LED(低电平点亮)
+// 已知失真(与上游一致,详见 .claude/docs/simulation.md):
+//   EXTI 借 F4 模型且 1.16.1 为直连(A/B/C 同号引脚都驱动同一条线,真机经 AFIO EXTICR 选择);
+//   RCC 无模型,Tag 假值 0x0A020083(就绪位恒 1);定时器频率按上游取 10MHz;
+//   DMA 无模型(1.16.1 平台未带;真机 C8T6 只有 DMA1)。
+
+sram: Memory.MappedMemory @ sysbus 0x20000000
+    size: 0x5000
+
+flash: Memory.MappedMemory @ sysbus 0x08000000
+    size: 0x10000
+
+usart1: UART.STM32_UART @ sysbus <0x40013800, +0x100>
+    -> nvic@37
+
+usart2: UART.STM32_UART @ sysbus <0x40004400, +0x100>
+    -> nvic@38
+
+usart3: UART.STM32_UART @ sysbus <0x40004800, +0x100>
+    -> nvic@39
+
+nvic: IRQControllers.NVIC @ sysbus 0xE000E000
+    priorityMask: 0xF0
+    systickFrequency: 72000000
+    IRQ -> cpu@0
+
+cpu: CPU.CortexM @ sysbus
+    cpuType: "cortex-m3"
+    nvic: nvic
+
+i2c1: I2C.STM32F4_I2C @ sysbus 0x40005400
+    EventInterrupt -> nvic@31
+    ErrorInterrupt -> nvic@32
+
+i2c2: I2C.STM32F4_I2C @ sysbus 0x40005800
+    EventInterrupt -> nvic@33
+    ErrorInterrupt -> nvic@34
+
+exti: IRQControllers.STM32F4_EXTI @ sysbus 0x40010400
+    numberOfOutputLines: 19
+    [0-4] -> nvic@[6-10]
+    [5-9] -> nvicInput23@[0-4]
+    [10-15] -> nvicInput40@[0-5]
+
+nvicInput23: Miscellaneous.CombinedInput @ none
+    numberOfInputs: 5
+    -> nvic@23
+
+nvicInput40: Miscellaneous.CombinedInput @ none
+    numberOfInputs: 6
+    -> nvic@40
+
+gpioPortA: GPIOPort.STM32F1GPIOPort @ sysbus <0x40010800, +0x400>
+    invertedAFPins: [[7, 1]]
+    [0-15] -> exti@[0-15]
+
+gpioPortB: GPIOPort.STM32F1GPIOPort @ sysbus <0x40010C00, +0x400>
+    invertedAFPins: [[13, 1], [14, 1], [15, 1], [0, 1], [1, 1]]
+    [0-15] -> exti@[0-15]
+
+gpioPortC: GPIOPort.STM32F1GPIOPort @ sysbus <0x40011000, +0x400>
+    [0-15] -> exti@[0-15]
+
+// 幽灵口(见文件头注释):仅为满足 STM32F1AFIO 的 7 口硬约束
+gpioPortD: GPIOPort.STM32F1GPIOPort @ sysbus <0x40011400, +0x400>
+    [0-15] -> exti@[0-15]
+
+gpioPortE: GPIOPort.STM32F1GPIOPort @ sysbus <0x40011800, +0x400>
+    invertedAFPins: [[8, 1], [10, 1], [12, 1]]
+    [0-15] -> exti@[0-15]
+
+gpioPortF: GPIOPort.STM32F1GPIOPort @ sysbus <0x40011C00, +0x400>
+    [0-15] -> exti@[0-15]
+
+gpioPortG: GPIOPort.STM32F1GPIOPort @ sysbus <0x40012000, +0x400>
+    [0-15] -> exti@[0-15]
+
+timer1: Timers.STM32_Timer @ sysbus 0x40012c00
+    BreakInterrupt -> nvic@24
+    UpdateInterrupt -> nvic@25
+    [TriggerInterrupt, CommutationInterrupt] -> nvic@[26, 26]
+    CaptureCompareInterrupt -> nvic@27
+    frequency: 10000000
+    initialLimit: 0xFFFF
+
+timer2: Timers.STM32_Timer @ sysbus 0x40000000
+    -> nvic@28
+    frequency: 10000000
+    initialLimit: 0xFFFF
+
+timer3: Timers.STM32_Timer @ sysbus 0x40000400
+    -> nvic@29
+    frequency: 10000000
+    initialLimit: 0xFFFF
+
+timer4: Timers.STM32_Timer @ sysbus 0x40000800
+    -> nvic@30
+    frequency: 10000000
+    initialLimit: 0xFFFF
+
+afio: GPIOPort.STM32F1AFIO @ sysbus 0x40010000
+    gpioPorts: [gpioPortA, gpioPortB, gpioPortC, gpioPortD, gpioPortE, gpioPortF, gpioPortG]
+
+led: Miscellaneous.LED @ gpioPortC 13
+
+// 复用映射(裁掉 D/E/F/G 口后的子集):gpioPortX#pin@timer
+timer1:
+    0 -> gpioPortA#08@01 | gpioPortB#13@01 | gpioPortA#07@01
+    1 -> gpioPortA#09@01 | gpioPortB#14@01 | gpioPortB#00@01
+    2 -> gpioPortA#10@01 | gpioPortB#15@01 | gpioPortB#01@01
+    3 -> gpioPortA#11@01
+
+timer2:
+    0 -> gpioPortA#00@02 | gpioPortA#15@02
+    1 -> gpioPortA#01@02 | gpioPortB#03@02
+    2 -> gpioPortA#02@02 | gpioPortB#10@02
+    3 -> gpioPortA#03@02 | gpioPortB#11@02
+
+timer3:
+    0 -> gpioPortA#06@03 | gpioPortB#04@03 | gpioPortC#06@03
+    1 -> gpioPortA#07@03 | gpioPortB#05@03 | gpioPortC#07@03
+    2 -> gpioPortB#00@03 | gpioPortC#08@03
+    3 -> gpioPortB#01@03 | gpioPortC#09@03
+
+timer4:
+    0 -> gpioPortB#06@04
+    1 -> gpioPortB#07@04
+    2 -> gpioPortB#08@04
+    3 -> gpioPortB#09@04
+
+sysbus:
+    init:
+        ApplySVD @https://dl.antmicro.com/projects/renode/svd/STM32F103.svd.gz
+        Tag <0x40021000, 0x40021003> "RCC_CR" 0x0A020083
