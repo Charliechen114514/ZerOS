@@ -166,7 +166,7 @@ struct BitmapPool {
     }
 
     // Buffer Locations here, as it request all baasic
-    ALL_ALIGNED std::byte buffer_[BUFFER_SIZE];
+    ALL_ALIGNED std::byte buffer_[BUFFER_SIZE]{};
     base::Bitmap<block_cnt> bitmap_l2_;      // one bit per block: 1 = occupied
     base::Bitmap<BITMAP_L2_SIZE> bitmap_l1_; // one bit per l2 word: 1 = that word is full
     base::Bitmap<block_cnt> ever_poisoned_;  // 1 = block went through a poison-on-free cycle

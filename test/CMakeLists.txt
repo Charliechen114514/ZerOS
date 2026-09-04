@@ -30,6 +30,7 @@ function(zeros_add_test name)
 endfunction()
 
 zeros_add_test(test_bitmap)
+zeros_add_test(test_self_list)
 zeros_add_test(test_bitmap_pool)
 zeros_add_test(test_typeable)
 
