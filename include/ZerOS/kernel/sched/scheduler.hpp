@@ -4,12 +4,16 @@
 #include "ZerOS/base/borrowed_ptr.hpp"
 #include "ZerOS/base/helpful_macros.hpp"
 #include "ZerOS/base/self_list.hpp"
+#include "ZerOS/kernel/clock/kernel.hpp"
 #include "ZerOS/kernel/sched/is_scheduler.hpp"
 #include "ZerOS/kernel/sched/task_control_block.hpp"
 
 namespace ZerOS::sched {
 
-template <Switchable Driver> struct Scheduler {
+template <typename Driver> struct Scheduler {
+    // the picker only rides a Switchable driver
+    static_assert(Switchable<Driver>, "Scheduler wants a Switchable driver");
+
     constexpr Scheduler() {
         idle_.task_priority_ = kIdlePrio;
         idle_.name_ = "idle";
@@ -73,6 +77,16 @@ template <Switchable Driver> struct Scheduler {
         }
         push_back(current_);
         driver_.request_switch();
+    }
+
+    // Park the task on the clock: arm and block share ONE guard, so a
+    // too-early wake always finds us already blocked — the wake then
+    // lands, it never gets dropped. Hand-rolling this from call_after_span
+    // + block reopens the gap (arm, wake, block, sleep forever).
+    template <clock::TimeKeeper Time>
+    void sleep_for(base::BorrowedPtr<TCB> t, Time& time, clock::Ticks::tick_t span,
+                   clock::TimeWaiter::OnTimeAction wake) {
+        time.park_for(&t->action, span, wake, [this, t] { block(t); });
     }
 
     [[nodiscard]] base::BorrowedPtr<TCB> fetch_idle_task() { return &idle_; }

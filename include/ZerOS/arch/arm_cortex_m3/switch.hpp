@@ -14,5 +14,6 @@ using SystemScheduler = ZerOS::sched::Scheduler<CortexM3SwitchPort>;
 extern SystemScheduler system_sched;
 
 void spawn(ZerOS::sched::TCB& t);                          // 伪造帧 + add
+void sleep_for(std::uint32_t ms);                          // 当前任务睡:arm+block 单临界区
 [[noreturn]] void start_scheduler(std::span<std::uint32_t> idle_stack); // 武装 + 首切,一去不回
 } // namespace ZerOS::arch::cortex_m3

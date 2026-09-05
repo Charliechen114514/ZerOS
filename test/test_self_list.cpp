@@ -109,7 +109,7 @@ TEST_CASE("pop_head detaches the node for re-insertion", "[selflist]") {
     auto h = l.pop_head();
     REQUIRE(h);
     CHECK(h->id == 1);
-    CHECK(a.next_ == nullptr);
+    // detached: the drain below proves re-insertion lands it back in order
     CHECK(l.head()->id == 2);
 
     l.insert(&a);

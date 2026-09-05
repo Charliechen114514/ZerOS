@@ -1,26 +1,29 @@
 #include <catch2/catch_test_macros.hpp>
 
-#include <cstddef>
 #include <cstdint>
+#include <span>
 
 #include "ZerOS/kernel/clock/kernel.hpp"
 #include "ZerOS/kernel/sched/scheduler.hpp"
+#include "ZerOS/task.hpp"
 
 using ZerOS::base::BorrowedPtr;
 using ZerOS::clock::TimeWaiter;
-using ZerOS::sched::IsScheduler;
-using ZerOS::sched::Scheduler;
-using ZerOS::sched::Switchable;
 using ZerOS::sched::TCB;
 using ZerOS::sched::TaskPriority_t;
 using ZerOS::sched::TaskState;
+using ZerOS::task::named;
 
 namespace {
+
+using ZerOS::sched::zeros_impl::TCBKeys; // whitebox key, tests only
 
 int g_switch_requests = 0;
 
 struct HostSwitchPort {
     void request_switch() { ++g_switch_requests; }
+    void lock() {}
+    void unlock() {}
 };
 
 struct SleepPort {
@@ -30,205 +33,226 @@ struct SleepPort {
     void unlock() {}
 };
 
-static_assert(Switchable<HostSwitchPort>);
-static_assert(IsScheduler<Scheduler<HostSwitchPort>>);
+static_assert(ZerOS::sched::Switchable<HostSwitchPort>);
+static_assert(ZerOS::sched::IsScheduler<ZerOS::sched::Scheduler<HostSwitchPort>>);
 static_assert(ZerOS::clock::TimePortable<SleepPort>);
 
-Scheduler<HostSwitchPort>* g_sched = nullptr;
+ZerOS::sched::Scheduler<HostSwitchPort>* g_sched = nullptr;
 
-TCB task(TaskPriority_t prio, const char* name) {
-    TCB t;
-    t.task_priority_ = prio;
-    t.name_ = name;
-    return t;
-}
+constexpr auto kNoopEntry = +[](void*) {};
+
+// tasks are built the legal way: the same factory road the app walks
+struct Rig {
+    ZerOS::sched::TCBStorage storage{};
+    TCB& tcb;
+
+    explicit Rig(TaskPriority_t prio, const char* name)
+        : tcb(named(name).prio(prio).stack(std::span<std::uint32_t>{})
+                          .entry(kNoopEntry, nullptr)
+                          .spawn_into(storage)) {}
+};
+
+constexpr auto kWake = +[](BorrowedPtr<TimeWaiter> w) {
+    g_sched->ready(TCB::owner_of(w));
+};
 
 int switches_after(int before) {
     return g_switch_requests - before;
 }
 
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Winvalid-offsetof"
-TCB* owner_of(BorrowedPtr<TimeWaiter> w) {
-    return reinterpret_cast<TCB*>(reinterpret_cast<std::byte*>(w.get()) - offsetof(TCB, action));
-}
-#pragma GCC diagnostic pop
-
 } // namespace
 
 TEST_CASE("pick_next takes the highest priority; add marks Ready", "[sched]") {
     g_switch_requests = 0;
-    Scheduler<HostSwitchPort> s;
-    TCB a = task(1, "a"), b = task(3, "b"), c = task(0, "c");
+    ZerOS::sched::Scheduler<HostSwitchPort> s;
+    Rig a(1, "a"), b(3, "b"), c(0, "c");
 
-    s.add(&a);
-    s.add(&b);
-    s.add(&c);
-    CHECK(a.state_ == TaskState::Ready);
-    CHECK(b.state_ == TaskState::Ready);
-    CHECK(c.state_ == TaskState::Ready);
+    s.add(&a.tcb);
+    s.add(&b.tcb);
+    s.add(&c.tcb);
+    CHECK(TCBKeys::state(a.tcb) == TaskState::Ready);
+    CHECK(TCBKeys::state(b.tcb) == TaskState::Ready);
+    CHECK(TCBKeys::state(c.tcb) == TaskState::Ready);
 
     auto t1 = s.pick_next();
-    REQUIRE(t1.get() == &c);
-    CHECK(c.state_ == TaskState::Running);
-    CHECK(s.current_task().get() == &c);
+    REQUIRE(t1.get() == &c.tcb);
+    CHECK(TCBKeys::state(c.tcb) == TaskState::Running);
+    CHECK(s.current_task().get() == &c.tcb);
 
-    s.block(&c);
+    s.block(&c.tcb);
     auto t2 = s.pick_next();
-    REQUIRE(t2.get() == &a);
+    REQUIRE(t2.get() == &a.tcb);
 }
 
 TEST_CASE("same level round-robins via yield-to-tail", "[sched]") {
     g_switch_requests = 0;
-    Scheduler<HostSwitchPort> s;
-    TCB a = task(1, "a"), b = task(1, "b"), d = task(1, "d");
+    ZerOS::sched::Scheduler<HostSwitchPort> s;
+    Rig a(1, "a"), b(1, "b"), d(1, "d");
 
-    s.add(&a);
-    s.add(&b);
-    s.add(&d);
+    s.add(&a.tcb);
+    s.add(&b.tcb);
+    s.add(&d.tcb);
 
-    REQUIRE(s.pick_next().get() == &a);
-
-    s.yield();
-    REQUIRE(s.pick_next().get() == &b);
+    REQUIRE(s.pick_next().get() == &a.tcb);
 
     s.yield();
-    REQUIRE(s.pick_next().get() == &d);
+    REQUIRE(s.pick_next().get() == &b.tcb);
 
     s.yield();
-    REQUIRE(s.pick_next().get() == &a);
+    REQUIRE(s.pick_next().get() == &d.tcb);
+
+    s.yield();
+    REQUIRE(s.pick_next().get() == &a.tcb);
 }
 
 TEST_CASE("preempted task resumes from the head of its level", "[sched]") {
     g_switch_requests = 0;
-    Scheduler<HostSwitchPort> s;
-    TCB a = task(1, "a"), c = task(0, "c");
+    ZerOS::sched::Scheduler<HostSwitchPort> s;
+    Rig a(1, "a"), c(0, "c");
 
-    s.add(&a);
-    REQUIRE(s.pick_next().get() == &a);
+    s.add(&a.tcb);
+    REQUIRE(s.pick_next().get() == &a.tcb);
 
     auto before = g_switch_requests;
-    c.state_ = TaskState::Blocked;
-    s.ready(&c);
+    TCBKeys::set_state(c.tcb, TaskState::Blocked);
+    s.ready(&c.tcb);
     CHECK(switches_after(before) == 1);
 
-    REQUIRE(s.pick_next().get() == &c);
-    CHECK(a.state_ == TaskState::Ready);
+    REQUIRE(s.pick_next().get() == &c.tcb);
+    CHECK(TCBKeys::state(a.tcb) == TaskState::Ready);
 
-    s.block(&c);
-    REQUIRE(s.pick_next().get() == &a);
-    CHECK(a.state_ == TaskState::Running);
+    s.block(&c.tcb);
+    REQUIRE(s.pick_next().get() == &a.tcb);
+    CHECK(TCBKeys::state(a.tcb) == TaskState::Running);
 }
 
 TEST_CASE("same-level wake joins the tail, no switch pended", "[sched]") {
     g_switch_requests = 0;
-    Scheduler<HostSwitchPort> s;
-    TCB a = task(0, "a"), b = task(0, "b");
+    ZerOS::sched::Scheduler<HostSwitchPort> s;
+    Rig a(0, "a"), b(0, "b");
 
-    s.add(&a);
-    REQUIRE(s.pick_next().get() == &a);
+    s.add(&a.tcb);
+    REQUIRE(s.pick_next().get() == &a.tcb);
 
     auto before = g_switch_requests;
-    b.state_ = TaskState::Blocked;
-    s.ready(&b);
+    TCBKeys::set_state(b.tcb, TaskState::Blocked);
+    s.ready(&b.tcb);
     CHECK(switches_after(before) == 0);
 
-    s.block(&a);
-    REQUIRE(s.pick_next().get() == &b);
+    s.block(&a.tcb);
+    REQUIRE(s.pick_next().get() == &b.tcb);
 }
 
 TEST_CASE("idle takes over when everything is blocked", "[sched]") {
     g_switch_requests = 0;
-    Scheduler<HostSwitchPort> s;
-    TCB a = task(1, "a");
+    ZerOS::sched::Scheduler<HostSwitchPort> s;
+    Rig a(1, "a");
 
-    s.add(&a);
-    REQUIRE(s.pick_next().get() == &a);
-    s.block(&a);
+    s.add(&a.tcb);
+    REQUIRE(s.pick_next().get() == &a.tcb);
+    s.block(&a.tcb);
 
     auto idle = s.pick_next();
     REQUIRE(idle.get() != nullptr);
-    CHECK(idle->name_ != nullptr);
+    CHECK(TCBKeys::name(*idle) != nullptr);
     CHECK(s.current_task().get() == idle.get());
 
     auto again = s.pick_next();
     CHECK(again.get() == idle.get());
 
-    s.ready(&a);
-    REQUIRE(s.pick_next().get() == &a);
+    s.ready(&a.tcb);
+    REQUIRE(s.pick_next().get() == &a.tcb);
 }
 
 TEST_CASE("block pends a switch only for the running task", "[sched]") {
     g_switch_requests = 0;
-    Scheduler<HostSwitchPort> s;
-    TCB a = task(1, "a"), b = task(2, "b");
+    ZerOS::sched::Scheduler<HostSwitchPort> s;
+    Rig a(1, "a"), b(2, "b");
 
-    s.add(&a);
-    s.add(&b);
-    REQUIRE(s.pick_next().get() == &a);
+    s.add(&a.tcb);
+    s.add(&b.tcb);
+    REQUIRE(s.pick_next().get() == &a.tcb);
 
     auto before = g_switch_requests;
-    s.block(&b);
+    s.block(&b.tcb);
     CHECK(switches_after(before) == 0);
-    CHECK(b.state_ == TaskState::Blocked);
+    CHECK(TCBKeys::state(b.tcb) == TaskState::Blocked);
 
-    s.block(&a);
+    s.block(&a.tcb);
     CHECK(switches_after(before) == 1);
 }
 
 TEST_CASE("ready of a lower priority task does not pend a switch", "[sched]") {
     g_switch_requests = 0;
-    Scheduler<HostSwitchPort> s;
-    TCB a = task(0, "a"), b = task(3, "b");
+    ZerOS::sched::Scheduler<HostSwitchPort> s;
+    Rig a(0, "a"), b(3, "b");
 
-    s.add(&a);
-    REQUIRE(s.pick_next().get() == &a);
+    s.add(&a.tcb);
+    REQUIRE(s.pick_next().get() == &a.tcb);
 
     auto before = g_switch_requests;
-    b.state_ = TaskState::Blocked;
-    s.ready(&b);
+    TCBKeys::set_state(b.tcb, TaskState::Blocked);
+    s.ready(&b.tcb);
     CHECK(switches_after(before) == 0);
 
-    s.block(&a);
-    REQUIRE(s.pick_next().get() == &b);
+    s.block(&a.tcb);
+    REQUIRE(s.pick_next().get() == &b.tcb);
 }
 
 TEST_CASE("a lone task yielding round-robins with itself", "[sched]") {
     g_switch_requests = 0;
-    Scheduler<HostSwitchPort> s;
-    TCB a = task(5, "a");
+    ZerOS::sched::Scheduler<HostSwitchPort> s;
+    Rig a(5, "a");
 
-    s.add(&a);
-    REQUIRE(s.pick_next().get() == &a);
+    s.add(&a.tcb);
+    REQUIRE(s.pick_next().get() == &a.tcb);
 
     s.yield();
-    REQUIRE(s.pick_next().get() == &a);
-    CHECK(a.state_ == TaskState::Running);
+    REQUIRE(s.pick_next().get() == &a.tcb);
+    CHECK(TCBKeys::state(a.tcb) == TaskState::Running);
 }
 
-TEST_CASE("sleep via TimeKernel wakes the TCB back into Ready", "[sched][time]") {
+TEST_CASE("sleep parks atomically and wakes back into Ready", "[sched][time]") {
     g_switch_requests = 0;
-    Scheduler<HostSwitchPort> s;
+    ZerOS::sched::Scheduler<HostSwitchPort> s;
     g_sched = &s;
 
-    TCB a = task(1, "a");
-    a.action.OnTime = +[](BorrowedPtr<TimeWaiter> w) { g_sched->ready(owner_of(w)); };
-
-    s.add(&a);
-    REQUIRE(s.pick_next().get() == &a);
+    Rig a(1, "a");
+    s.add(&a.tcb);
+    REQUIRE(s.pick_next().get() == &a.tcb);
 
     ZerOS::clock::Kernel<SleepPort> tk;
-    s.block(&a);
-    tk.call_after_span(&a.action, 5);
+    s.sleep_for(&a.tcb, tk, 5, kWake);
 
     tk.on_elapsed(4);
-    CHECK(a.state_ == TaskState::Blocked);
+    CHECK(TCBKeys::state(a.tcb) == TaskState::Blocked);
 
     tk.on_elapsed(1);
-    CHECK(a.state_ == TaskState::Ready);
+    CHECK(TCBKeys::state(a.tcb) == TaskState::Ready);
 
     auto before = g_switch_requests;
-    REQUIRE(s.pick_next().get() == &a);
-    CHECK(a.state_ == TaskState::Running);
+    REQUIRE(s.pick_next().get() == &a.tcb);
+    CHECK(TCBKeys::state(a.tcb) == TaskState::Running);
     CHECK(switches_after(before) == 0);
+}
+
+TEST_CASE("a zero-span sleep still wakes: no gap between arm and block", "[sched][time]") {
+    // regression: hand-rolled sleep (arm, then block) loses a wake that
+    // fires in between and the task sleeps forever. The compound must
+    // not have that gap, not even for span 0.
+    g_switch_requests = 0;
+    ZerOS::sched::Scheduler<HostSwitchPort> s;
+    g_sched = &s;
+
+    Rig a(1, "a");
+    s.add(&a.tcb);
+    REQUIRE(s.pick_next().get() == &a.tcb);
+
+    ZerOS::clock::Kernel<SleepPort> tk;
+    s.sleep_for(&a.tcb, tk, 0, kWake);
+
+    tk.on_elapsed(1);
+    CHECK(TCBKeys::state(a.tcb) == TaskState::Ready);
+
+    REQUIRE(s.pick_next().get() == &a.tcb);
 }

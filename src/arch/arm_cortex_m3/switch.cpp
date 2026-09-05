@@ -1,5 +1,6 @@
 #include "ZerOS/arch/arm_cortex_m3/switch.hpp"
 #include "ZerOS/arch/arm_cortex_m3/arch.hpp"
+#include "ZerOS/arch/arm_cortex_m3/time_kernel_cm3.hpp"
 #include "ZerOS/arch/arm_cortex_m3/trap.hpp"
 
 namespace {
@@ -8,18 +9,21 @@ auto* const kShpr3 = reinterpret_cast<volatile std::uint32_t*>(0xE000ED20); // S
 } // namespace
 
 namespace ZerOS::arch::cortex_m3 {
+using sched::zeros_impl::TCBKeys; // the naked mechanics key, see task_control_block.hpp
+
 void CortexM3SwitchPort::request_switch() {
     *kIcsr = (1u << 28); // Set the PendSV intrs
 }
 
 void fabricate_frame(ZerOS::sched::TCB& t) {
-    auto* top = t.stack_view_.data() + t.stack_view_.size();
+    auto view = sched::zeros_impl::TCBKeys::stack_view(t);
+    auto* top = view.data() + view.size();
     auto* hw = reinterpret_cast<ExceptionFrame*>(top) - 1;
     auto* sw = reinterpret_cast<SoftwareFrame*>(hw) - 1;
 
     *sw = {}; // Clear, memset set bytes, we say class clean
     *hw = ExceptionFrame{
-        .r0 = reinterpret_cast<std::uint32_t>(&t.task_wrapper_), // 任务参数
+        .r0 = reinterpret_cast<std::uint32_t>(&TCBKeys::wrapper(t)), // 任务参数
         .r1 = 0x00000000,
         .r2 = 0x00000000,
         .r3 = 0x00000000,
@@ -29,21 +33,22 @@ void fabricate_frame(ZerOS::sched::TCB& t) {
         .xpsr = 0x01000000u,
     };
 
-    t.stack_pointer_ = reinterpret_cast<std::uint32_t*>(sw);
+    TCBKeys::sp(t) = reinterpret_cast<std::uint32_t*>(sw);
 }
 
 constinit SystemScheduler system_sched{};
 
 extern "C" std::uint32_t* context_switch(std::uint32_t* saved_sp) {
     if (saved_sp != nullptr) {
-        system_sched.current_task()->stack_pointer_ = saved_sp;
+        TCBKeys::sp(*system_sched.current_task()) = saved_sp;
     }
-    return system_sched.pick_next()->stack_pointer_;
+    return TCBKeys::sp(*system_sched.pick_next());
 }
 
 
 extern "C" [[gnu::naked]] void SVC_Handler() {
     asm volatile("cpsid   i\n"
+                 "movs    r0, #0\n" // first switch ever: nobody is running, nobody to save
                  "bl      context_switch\n"
                  "ldmia   r0!, {r4-r11}\n"
                  "msr     psp, r0\n"
@@ -71,15 +76,25 @@ void spawn(ZerOS::sched::TCB& t) {
     system_sched.add(&t);
 }
 
+namespace {
+void wake_from_sleep(base::BorrowedPtr<clock::TimeWaiter> waiter) {
+    system_sched.ready(sched::TCB::owner_of(waiter));
+}
+} // namespace
+
+void sleep_for(std::uint32_t ms) {
+    system_sched.sleep_for(system_sched.current_task(), system_time, ms, wake_from_sleep);
+}
+
 void start_scheduler(std::span<std::uint32_t> idle_stack) {
     auto idle = system_sched.fetch_idle_task();
-    idle->task_wrapper_ = {+[](void*) {
-                               for (;;) {
-                                   asm volatile("wfi");
-                               }
-                           },
-                           nullptr};
-    idle->stack_view_ = idle_stack;
+    TCBKeys::wrapper(*idle) = {+[](void*) {
+                                    for (;;) {
+                                        asm volatile("wfi");
+                                    }
+                                },
+                                nullptr};
+    TCBKeys::stack_view(*idle) = idle_stack;
     fabricate_frame(*idle);
 
     *kShpr3 = (*kShpr3 & 0xFF00FFFFu) | (0xFFu << 16);

@@ -24,7 +24,7 @@ struct Waiter {
 std::vector<std::uint32_t> drain_deadlines(TimerQueue& q) {
     std::vector<std::uint32_t> out;
     while (auto h = q.head()) {
-        out.push_back(h->deadline_.tick_);
+        out.push_back(h->deadline().tick_);
         static_cast<void>(q.remove(h));
     }
     return out;
@@ -68,7 +68,7 @@ TEST_CASE("pop_due: exact boundary fires, one tick early does not", "[timequeue]
     CHECK_FALSE(q.pop_due(Ticks{99}));
     auto p = q.pop_due(Ticks{100});
     REQUIRE(p);
-    CHECK(p->deadline_.tick_ == 100);
+    CHECK(p->deadline().tick_ == 100);
 }
 
 TEST_CASE("pop_due drains every due head then stops at the future", "[timequeue]") {
@@ -82,20 +82,20 @@ TEST_CASE("pop_due drains every due head then stops at the future", "[timequeue]
     Ticks now{25};
     auto p1 = q.pop_due(now);
     REQUIRE(p1);
-    CHECK(p1->deadline_.tick_ == 10);
+    CHECK(p1->deadline().tick_ == 10);
     auto p2 = q.pop_due(now);
     REQUIRE(p2);
-    CHECK(p2->deadline_.tick_ == 20);
+    CHECK(p2->deadline().tick_ == 20);
     CHECK_FALSE(q.pop_due(now));
 
     auto p3 = q.pop_due(Ticks{30});
     REQUIRE(p3);
-    CHECK(p3->deadline_.tick_ == 30);
+    CHECK(p3->deadline().tick_ == 30);
 
     CHECK_FALSE(q.pop_due(Ticks{99}));
     auto p4 = q.pop_due(Ticks{100});
     REQUIRE(p4);
-    CHECK(p4->deadline_.tick_ == 100);
+    CHECK(p4->deadline().tick_ == 100);
 }
 
 TEST_CASE("wraparound: due-check survives the rollover", "[timequeue]") {
@@ -106,12 +106,12 @@ TEST_CASE("wraparound: due-check survives the rollover", "[timequeue]") {
     CHECK_FALSE(q.pop_due(Ticks{0xFFFFFFFBu}));
     auto p = q.pop_due(Ticks{0xFFFFFFFFu});
     REQUIRE(p);
-    CHECK(p->deadline_.tick_ == 0xFFFFFFFCu);
+    CHECK(p->deadline().tick_ == 0xFFFFFFFCu);
 
     q.insert(&late.node);
     p = q.pop_due(Ticks{0x2u});
     REQUIRE(p);
-    CHECK(p->deadline_.tick_ == 0xFFFFFFFCu);
+    CHECK(p->deadline().tick_ == 0xFFFFFFFCu);
 }
 
 TEST_CASE("wraparound: ordering across the rollover", "[timequeue]") {
@@ -122,16 +122,16 @@ TEST_CASE("wraparound: ordering across the rollover", "[timequeue]") {
     q.insert(&before_rollover.node);
 
     REQUIRE(q.head());
-    CHECK(q.head()->deadline_.tick_ == 0xFFFFFFFCu);
+    CHECK(q.head()->deadline().tick_ == 0xFFFFFFFCu);
 
     auto p = q.pop_due(Ticks{0x3u});
     REQUIRE(p);
-    CHECK(p->deadline_.tick_ == 0xFFFFFFFCu);
+    CHECK(p->deadline().tick_ == 0xFFFFFFFCu);
     CHECK_FALSE(q.pop_due(Ticks{0x3u}));
 
     p = q.pop_due(Ticks{0x5u});
     REQUIRE(p);
-    CHECK(p->deadline_.tick_ == 5);
+    CHECK(p->deadline().tick_ == 5);
 }
 
 TEST_CASE("remove keeps the rest ordered and reports re-removal", "[timequeue]") {

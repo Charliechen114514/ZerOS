@@ -42,7 +42,7 @@ void reset_logs() {
 std::vector<std::uint32_t> fired_deadlines() {
     std::vector<std::uint32_t> out;
     for (auto* n : g_fired_nodes) {
-        out.push_back(n->deadline_.tick_);
+        out.push_back(n->deadline().tick_);
     }
     return out;
 }

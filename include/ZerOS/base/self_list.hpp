@@ -5,13 +5,20 @@
 #include <type_traits>
 namespace ZerOS::base {
 template <typename Stuff> struct SelfNode {
+  private:
+    // Only the list may walk the chain: a stray hand wiring nodes behind
+    // our back is how ready queues die quietly
+    template <typename, typename> friend struct SelfList;
     Stuff* next_{};
 };
 
 template <typename Stuff>
 concept SelfLinked = std::is_base_of_v<SelfNode<Stuff>, Stuff>;
 
-template <SelfLinked Stuff, typename Less = ZerOS::traits::AlwaysFalse> struct SelfList {
+template <typename Stuff, typename Less = ZerOS::traits::AlwaysFalse> struct SelfList {
+    // the walk needs the node: stuff without a SelfNode simply has no road in
+    static_assert(SelfLinked<Stuff>, "SelfList walks SelfLinked stuff only");
+
     SelfList() = default;
     SelfList(const SelfList&) = delete;
     SelfList& operator=(const SelfList&) = delete;
