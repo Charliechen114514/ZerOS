@@ -9,26 +9,28 @@ set(CMSIS ${CMAKE_SOURCE_DIR}/third_party/STM32CubeF1/Drivers/CMSIS)
 add_executable(
     zeros-bluepill
     ${CMAKE_SOURCE_DIR}/example/main.cpp
+    ${CMAKE_SOURCE_DIR}/src/arch/arm_cortex_m3/time_kernel_cm3.cpp
     startup.cpp
     system_stm32f1xx.c
 )
+
 target_include_directories(
     zeros-bluepill
     PRIVATE ${CMAKE_SOURCE_DIR}/include
-            ${CMAKE_SOURCE_DIR}/src
-            ${CMAKE_CURRENT_SOURCE_DIR}
-            ${CMSIS}/Include
-            ${CMSIS}/Core/Include
-            ${CMSIS}/Device/ST/STM32F1xx/Include
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMSIS}/Include
+    ${CMSIS}/Core/Include
+    ${CMSIS}/Device/ST/STM32F1xx/Include
 )
 target_compile_definitions(zeros-bluepill PRIVATE STM32F103xB)
 target_link_options(
     zeros-bluepill
     PRIVATE -nostdlib
-            -Wl,-T,${CMAKE_CURRENT_SOURCE_DIR}/link.ld
-            -Wl,--gc-sections
-            -Wl,--print-memory-usage
-            -Wl,-Map,${CMAKE_BINARY_DIR}/zeros-bluepill.map
+    -Wl,-T,${CMAKE_CURRENT_SOURCE_DIR}/link.ld
+    -Wl,--gc-sections
+    -Wl,--print-memory-usage
+    -Wl,-Map,${CMAKE_BINARY_DIR}/zeros-bluepill.map
 )
 add_custom_command(
     TARGET zeros-bluepill
@@ -50,11 +52,11 @@ endif()
 add_custom_target(
     renode-bluepill
     COMMAND ${CMAKE_COMMAND}
-            -DRENODE_ROOT=${CMAKE_SOURCE_DIR}
-            -DRENODE_ELF=${_elf}
-            -DRENODE_RESC=src/board/stm32f103_bluepill/sim/renode/bluepill.resc
-            -DRENODE_SECONDS=${ZEROS_SIM_SECONDS}
-            -P ${CMAKE_CURRENT_SOURCE_DIR}/sim/renode/run-renode.cmake
+    -DRENODE_ROOT=${CMAKE_SOURCE_DIR}
+    -DRENODE_ELF=${_elf}
+    -DRENODE_RESC=src/board/stm32f103_bluepill/sim/renode/bluepill.resc
+    -DRENODE_SECONDS=${ZEROS_SIM_SECONDS}
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/sim/renode/run-renode.cmake
     DEPENDS zeros-bluepill
     USES_TERMINAL
 )

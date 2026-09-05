@@ -20,8 +20,8 @@ struct Clock {
 // Wait... oh it's time to take action!
 struct TimeWaiter : public base::SelfNode<TimeWaiter> {
     using OnTimeAction = void (*)(base::BorrowedPtr<TimeWaiter> self);
-    Ticks deadline_;
-    OnTimeAction OnTime;
+    Ticks deadline_{};
+    OnTimeAction OnTime{nullptr};
 
     constexpr TimeWaiter() = default;
     constexpr TimeWaiter(Ticks deadline, OnTimeAction on_time)
