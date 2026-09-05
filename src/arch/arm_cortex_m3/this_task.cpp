@@ -1,21 +1,13 @@
-// The Cortex-M3 answer to the ThisTask face: owns the wiring knowledge
-// (both singletons + the wake reaction), then stamps the template out.
+// The Cortex-M3 answer to the ThisTask face: it only knows the handover
+// point (system::os()), never the singletons behind it.
 
 #include "system/this_task_impl.hpp"
 
-#include "ZerOS/arch/arm_cortex_m3/switch.hpp"
-#include "ZerOS/arch/arm_cortex_m3/time_kernel_cm3.hpp"
-#include "ZerOS/kernel/clock/clock.hpp"
-#include "ZerOS/kernel/sched/task_control_block.hpp"
+#include "ZerOS/arch/arm_cortex_m3/system.hpp"
 
 namespace {
 
-using ZerOS::arch::cortex_m3::system_sched;
-using ZerOS::arch::cortex_m3::system_time;
-
-void wake_from_sleep(ZerOS::base::BorrowedPtr<ZerOS::clock::TimeWaiter> waiter) {
-    system_sched.ready(ZerOS::sched::TCB::owner_of(waiter));
-}
+using ZerOS::system::os;
 
 } // namespace
 
@@ -23,16 +15,15 @@ namespace ZerOS::detail {
 
 struct SystemTaskBackend {
     static void sleep_for(Milliseconds delay) noexcept {
-        system_sched.sleep_for(system_sched.current_task(), system_time, delay.count,
-                               wake_from_sleep);
+        auto& sys = os();
+        sys.sleep_for(sys.current_task(), delay.count);
     }
 
-    static void yield() noexcept {
-        system_sched.yield();
-    }
+    static void yield() noexcept { os().yield(); }
 
     static void block() noexcept {
-        system_sched.block(system_sched.current_task());
+        auto& sys = os();
+        sys.block(sys.current_task());
     }
 };
 

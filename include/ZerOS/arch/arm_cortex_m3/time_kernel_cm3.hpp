@@ -6,6 +6,7 @@
 
 namespace ZerOS::arch::cortex_m3 {
 using SystemTimeKernel = ZerOS::clock::Kernel<CortexM3Portable>;
-extern SystemTimeKernel system_time;
+// the instance lives in time_kernel_cm3.cpp; runtime users go through
+// system::os() — the extern is nobody's business now
 void init_time(std::uint32_t cycles_per_tick);
 } // namespace ZerOS::arch::cortex_m3

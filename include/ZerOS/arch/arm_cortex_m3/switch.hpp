@@ -11,7 +11,8 @@ struct CortexM3SwitchPort : CortexM3CriticalSection { // 组合:锁 + 切换请�
 };
 
 using SystemScheduler = ZerOS::sched::Scheduler<CortexM3SwitchPort>;
-extern SystemScheduler system_sched;
+// the instance lives in switch.cpp; runtime users go through system::os()
+// (arch/arm_cortex_m3/system.hpp) — the extern is nobody's business now
 
 void spawn(ZerOS::sched::TCB& t);                          // 伪造帧 + add(装配期一次)
 [[noreturn]] void start_scheduler(std::span<std::uint32_t> idle_stack); // 武装 + 首切,一去不回

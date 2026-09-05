@@ -5,7 +5,7 @@
 
 #include "ZerOS/kernel/clock/kernel.hpp"
 #include "ZerOS/kernel/sched/scheduler.hpp"
-#include "ZerOS/task.hpp"
+#include "ZerOS/kernel/sched/task.hpp"
 
 using ZerOS::base::BorrowedPtr;
 using ZerOS::clock::TimeWaiter;

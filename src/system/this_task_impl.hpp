@@ -4,7 +4,7 @@
 // .cpps and internal tests include this; the concept fires HERE, where
 // the backend is complete — never on the public declaration.
 
-#include "ZerOS/this_task.hpp"
+#include "ZerOS/kernel/sched/this_task.hpp"
 
 #include <concepts>
 

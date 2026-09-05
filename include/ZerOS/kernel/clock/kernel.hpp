@@ -40,9 +40,9 @@ template <typename Driver> struct Kernel {
     // Parking: arm AND block inside ONE guard. A wake slipping in between
     // the two steps would find the task un-blocked, drop it, and the task
     // sleeps forever — the order here IS the fix
-    template <typename ParkBlock>
-    void park_for(base::BorrowedPtr<TimeWaiter> task, Ticks::tick_t span,
-                  TimeWaiter::OnTimeAction wake, ParkBlock&& block_now) {
+    template <typename ParkBlock> void park_for(base::BorrowedPtr<TimeWaiter> task,
+                                                Ticks::tick_t span, TimeWaiter::OnTimeAction wake,
+                                                ParkBlock&& block_now) {
         irq::CriticalGuard guard{lowlevel_driver_};
         enqueue_locked(task, span, wake);
         block_now(); // still under the very same lock
@@ -75,6 +75,7 @@ template <typename Driver> struct Kernel {
     // caller must hold the guard; wake is optional (nullptr keeps the born-with reaction)
     void enqueue_locked(base::BorrowedPtr<TimeWaiter> task, Ticks::tick_t span,
                         TimeWaiter::OnTimeAction wake) {
+        queue_.remove(task);
         if (wake != nullptr) {
             task->OnTime = wake;
         }
@@ -96,8 +97,7 @@ template <typename Driver> struct Kernel {
         }
 
         const auto now = clock_.current().tick_;
-        bool armed_pending =
-            arm_valid_ && static_cast<Ticks::tick_diff_t>(armed_.tick_ - now) > 0;
+        bool armed_pending = arm_valid_ && static_cast<Ticks::tick_diff_t>(armed_.tick_ - now) > 0;
         bool head_earlier =
             arm_valid_ && static_cast<Ticks::tick_diff_t>(armed_.tick_ - head->deadline_.tick_) > 0;
 
