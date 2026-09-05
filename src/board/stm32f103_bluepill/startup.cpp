@@ -10,9 +10,10 @@ extern "C" {
 extern std::uint32_t _sidata, _sdata, _edata, _sbss, _ebss, _estack;
 
 int main();
-void SysTick_Handler(); // SystemClock
-void PendSV_Handler();  // PendSV
-void SVC_Handler();     // Supervisor call
+void SysTick_Handler();   // SystemClock
+void PendSV_Handler();    // PendSV
+void SVC_Handler();       // Supervisor call
+void USART1_IRQHandler(); // UART RX(IRQ 37)
 
 void reset_handler() {
     auto src = reinterpret_cast<std::uintptr_t>(&_sidata);
@@ -70,4 +71,43 @@ __attribute__((section(".isr_vector"), used)) const Isr vectors[] = {
     nullptr,          // 13 保留
     &PendSV_Handler,  // 14 PendSV(内核 port)
     &SysTick_Handler, // 15 SysTick
+    // 16-52 片上外设槽:未使能不会来;万一误触发,兜底打印比 nullptr 的 lockup 好查(P4)
+    &fault_handler,
+    &fault_handler,
+    &fault_handler,
+    &fault_handler,
+    &fault_handler,
+    &fault_handler,
+    &fault_handler,
+    &fault_handler, // 16-23
+    &fault_handler,
+    &fault_handler,
+    &fault_handler,
+    &fault_handler,
+    &fault_handler,
+    &fault_handler,
+    &fault_handler,
+    &fault_handler, // 24-31
+    &fault_handler,
+    &fault_handler,
+    &fault_handler,
+    &fault_handler,
+    &fault_handler,
+    &fault_handler,
+    &fault_handler,
+    &fault_handler, // 32-39
+    &fault_handler,
+    &fault_handler,
+    &fault_handler,
+    &fault_handler,
+    &fault_handler,
+    &fault_handler,
+    &fault_handler,
+    &fault_handler, // 40-47
+    &fault_handler,
+    &fault_handler,
+    &fault_handler,
+    &fault_handler,
+    &fault_handler,     // 48-52
+    &USART1_IRQHandler, // 53 USART1 全局中断(RX 事件唤醒 demo)
 };

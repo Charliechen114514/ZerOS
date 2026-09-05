@@ -9,6 +9,7 @@ set(CMSIS ${CMAKE_SOURCE_DIR}/third_party/STM32CubeF1/Drivers/CMSIS)
 add_executable(
     zeros-bluepill
     ${CMAKE_SOURCE_DIR}/example/main.cpp
+    ${CMAKE_SOURCE_DIR}/src/arch/arm_cortex_m3/this_task.cpp
     ${CMAKE_SOURCE_DIR}/src/arch/arm_cortex_m3/time_kernel_cm3.cpp
     ${CMAKE_SOURCE_DIR}/src/arch/arm_cortex_m3/switch.cpp
     startup.cpp

@@ -1,6 +1,5 @@
 #include "ZerOS/arch/arm_cortex_m3/switch.hpp"
 #include "ZerOS/arch/arm_cortex_m3/arch.hpp"
-#include "ZerOS/arch/arm_cortex_m3/time_kernel_cm3.hpp"
 #include "ZerOS/arch/arm_cortex_m3/trap.hpp"
 
 namespace {
@@ -45,7 +44,6 @@ extern "C" std::uint32_t* context_switch(std::uint32_t* saved_sp) {
     return TCBKeys::sp(*system_sched.pick_next());
 }
 
-
 extern "C" [[gnu::naked]] void SVC_Handler() {
     asm volatile("cpsid   i\n"
                  "movs    r0, #0\n" // first switch ever: nobody is running, nobody to save
@@ -76,24 +74,14 @@ void spawn(ZerOS::sched::TCB& t) {
     system_sched.add(&t);
 }
 
-namespace {
-void wake_from_sleep(base::BorrowedPtr<clock::TimeWaiter> waiter) {
-    system_sched.ready(sched::TCB::owner_of(waiter));
-}
-} // namespace
-
-void sleep_for(std::uint32_t ms) {
-    system_sched.sleep_for(system_sched.current_task(), system_time, ms, wake_from_sleep);
-}
-
 void start_scheduler(std::span<std::uint32_t> idle_stack) {
     auto idle = system_sched.fetch_idle_task();
     TCBKeys::wrapper(*idle) = {+[](void*) {
-                                    for (;;) {
-                                        asm volatile("wfi");
-                                    }
-                                },
-                                nullptr};
+                                   for (;;) {
+                                       asm volatile("wfi");
+                                   }
+                               },
+                               nullptr};
     TCBKeys::stack_view(*idle) = idle_stack;
     fabricate_frame(*idle);
 
