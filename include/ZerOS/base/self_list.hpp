@@ -42,6 +42,11 @@ template <SelfLinked Stuff, typename Less = ZerOS::traits::AlwaysFalse> struct S
         return false;
     }
 
+    void push_front(BorrowedPtr<Stuff> new_stuff) {
+        new_stuff->next_ = stuff;
+        stuff = new_stuff.get();
+    }
+
     [[nodiscard]] BorrowedPtr<Stuff> pop_head() {
         Stuff* out = stuff;
         if (out != nullptr) {

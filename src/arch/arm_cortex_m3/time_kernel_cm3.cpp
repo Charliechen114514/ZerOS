@@ -17,7 +17,8 @@ constexpr std::uint32_t kSystClkSource = 4u;
 } // namespace
 
 void ZerOS::arch::cortex_m3::init_time(std::uint32_t cycles_per_tick) {
-    *kScbShpr3 = (*kScbShpr3 & 0x00FFFFFFu) | (0xF0u << 24);
+    // same level with PendSV
+    *kScbShpr3 = (*kScbShpr3 & 0x00FFFFFFu) | (0xFFu << 24);
     *kSystRvr = cycles_per_tick - 1;
     *kSystCvr = 0;
     *kSystCsr = kSystEnable | kSystTickInt | kSystClkSource;

@@ -10,6 +10,7 @@ add_executable(
     zeros-bluepill
     ${CMAKE_SOURCE_DIR}/example/main.cpp
     ${CMAKE_SOURCE_DIR}/src/arch/arm_cortex_m3/time_kernel_cm3.cpp
+    ${CMAKE_SOURCE_DIR}/src/arch/arm_cortex_m3/switch.cpp
     startup.cpp
     system_stm32f1xx.c
 )

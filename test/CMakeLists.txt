@@ -33,6 +33,7 @@ zeros_add_test(test_bitmap)
 zeros_add_test(test_self_list)
 zeros_add_test(test_timequeue)
 zeros_add_test(test_time_kernel)
+zeros_add_test(test_sched)
 zeros_add_test(test_bitmap_pool)
 zeros_add_test(test_typeable)
 

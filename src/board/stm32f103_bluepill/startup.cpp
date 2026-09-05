@@ -10,7 +10,9 @@ extern "C" {
 extern std::uint32_t _sidata, _sdata, _edata, _sbss, _ebss, _estack;
 
 int main();
-void SysTick_Handler();
+void SysTick_Handler(); // SystemClock
+void PendSV_Handler();  // PendSV
+void SVC_Handler();     // Supervisor call
 
 void reset_handler() {
     auto src = reinterpret_cast<std::uintptr_t>(&_sidata);
@@ -51,22 +53,21 @@ void* memset(void* dst, int value, std::size_t n) {
 
 using Isr = void (*)();
 
-__attribute__((section(".isr_vector"), used))
-const Isr vectors[] = {
-    reinterpret_cast<Isr>(&_estack),             // 0  初始 SP
-    &reset_handler,                              // 1  Reset
-    &fault_handler,                              // 2  NMI
-    &fault_handler,                              // 3  HardFault
-    &fault_handler,                              // 4  MemManage
-    &fault_handler,                              // 5  BusFault
-    &fault_handler,                              // 6  UsageFault
-    nullptr,                                     // 7-10 保留
+__attribute__((section(".isr_vector"), used)) const Isr vectors[] = {
+    reinterpret_cast<Isr>(&_estack), // 0  初始 SP
+    &reset_handler,                  // 1  Reset
+    &fault_handler,                  // 2  NMI
+    &fault_handler,                  // 3  HardFault
+    &fault_handler,                  // 4  MemManage
+    &fault_handler,                  // 5  BusFault
+    &fault_handler,                  // 6  UsageFault
+    nullptr,                         // 7-10 保留
     nullptr,
     nullptr,
     nullptr,
-    nullptr,                                     // 11-14 (SVC/PendSV 归内核 port)
-    nullptr,
-    nullptr,
-    nullptr,
-    &SysTick_Handler,                            // 15 SysTick(应用定义)
+    &SVC_Handler,     // 11 SVC(首任务引导,内核 port)
+    nullptr,          // 12 DebugMon
+    nullptr,          // 13 保留
+    &PendSV_Handler,  // 14 PendSV(内核 port)
+    &SysTick_Handler, // 15 SysTick
 };
