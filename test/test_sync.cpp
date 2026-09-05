@@ -67,6 +67,10 @@ struct FakeSys {
     }
     void yield() { sched_->yield(); }
     Ticks now() { return time_->current(); }
+    ZerOS::sched::TaskPriority_t prio(BorrowedPtr<TCB> t) { return sched_->prio(t); }
+    void reprioritize(BorrowedPtr<TCB> t, ZerOS::sched::TaskPriority_t p) {
+        sched_->reprioritize(t, p);
+    }
     void lock() {}
     void unlock() {}
 };

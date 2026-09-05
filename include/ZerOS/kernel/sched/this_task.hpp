@@ -2,6 +2,7 @@
 #include <cstdint>
 
 #include "ZerOS/kernel/clock/durations.hpp"
+#include "ZerOS/kernel/clock/ticks.hpp"
 
 namespace ZerOS {
 
@@ -20,6 +21,7 @@ template <class Backend> struct BasicThisTask {
     // raw "sleep until someone readies me" — the real event primitives
     // (semaphores and friends) will grow on top of this
     static void block() noexcept;
+    [[nodiscard]] static ZerOS::clock::Ticks now() noexcept;
 };
 
 extern template struct BasicThisTask<detail::SystemTaskBackend>;

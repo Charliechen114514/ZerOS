@@ -51,6 +51,15 @@ clock::Ticks CortexM3System::now() {
     return system_time.current();
 }
 
+sched::TaskPriority_t CortexM3System::prio(base::BorrowedPtr<sched::TCB> t) {
+    return system_sched.prio(t);
+}
+
+void CortexM3System::reprioritize(base::BorrowedPtr<sched::TCB> t,
+                                  sched::TaskPriority_t new_prio) {
+    system_sched.reprioritize(t, new_prio);
+}
+
 void CortexM3System::lock() {
     guard_.lock();
 }

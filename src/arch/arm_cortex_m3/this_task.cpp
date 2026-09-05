@@ -25,6 +25,8 @@ struct SystemTaskBackend {
         auto& sys = os();
         sys.block(sys.current_task());
     }
+
+    static ZerOS::clock::Ticks now() noexcept { return os().now(); }
 };
 
 } // namespace ZerOS::detail

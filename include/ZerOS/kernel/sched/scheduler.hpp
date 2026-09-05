@@ -30,9 +30,7 @@ template <typename Driver> struct Scheduler {
         }
     }
 
-    [[nodiscard]] base::BorrowedPtr<TCB> current_task() const {
-        return current_;
-    }
+    [[nodiscard]] base::BorrowedPtr<TCB> current_task() const { return current_; }
 
     [[nodiscard]] base::BorrowedPtr<TCB> pick_next() {
         irq::CriticalGuard guard{driver_};
@@ -79,15 +77,31 @@ template <typename Driver> struct Scheduler {
         driver_.request_switch();
     }
 
-    // Park the task on the clock: arm and block share ONE guard, so a
-    // too-early wake always finds us already blocked — the wake then
-    // lands, it never gets dropped. Hand-rolling this from call_after_span
-    // + block reopens the gap (arm, wake, block, sleep forever).
-    template <clock::TimeKeeper Time>
-    void sleep_for(base::BorrowedPtr<TCB> t, Time& time, clock::Ticks::tick_t span,
-                   clock::TimeWaiter::OnTimeAction wake) {
+    template <clock::TimeKeeper Time> void sleep_for(base::BorrowedPtr<TCB> t, Time& time,
+                                                     clock::Ticks::tick_t span,
+                                                     clock::TimeWaiter::OnTimeAction wake) {
         time.park_for(&t->action, span, wake, [this, t] { block(t); });
     }
+
+    void reprioritize(base::BorrowedPtr<TCB> t, TaskPriority_t new_prio) {
+        irq::CriticalGuard guard{driver_};
+        if (t->task_priority_ == new_prio) {
+            return;
+        }
+        if (t->state_ == TaskState::Ready) {
+            fifo_[t->task_priority_].remove(t);
+            if (fifo_[t->task_priority_].empty()) {
+                present_.clear(t->task_priority_);
+            }
+            t->task_priority_ = new_prio;
+            push_back(t.get());
+        } else {
+            t->task_priority_ = new_prio;
+        }
+    }
+
+    // a plain read; diagnostics and the boost-or-not decision both want it
+    [[nodiscard]] TaskPriority_t prio(base::BorrowedPtr<TCB> t) const { return t->task_priority_; }
 
     [[nodiscard]] base::BorrowedPtr<TCB> fetch_idle_task() { return &idle_; }
 

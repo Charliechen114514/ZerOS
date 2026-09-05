@@ -25,6 +25,8 @@ class CortexM3System {
     void sleep_for(base::BorrowedPtr<sched::TCB> t, clock::Ticks::tick_t span);
     void yield();
     [[nodiscard]] clock::Ticks now();
+    [[nodiscard]] sched::TaskPriority_t prio(base::BorrowedPtr<sched::TCB> t);
+    void reprioritize(base::BorrowedPtr<sched::TCB> t, sched::TaskPriority_t new_prio);
     void lock();
     void unlock();
 
