@@ -9,6 +9,7 @@ set(CMSIS ${CMAKE_SOURCE_DIR}/third_party/STM32CubeF1/Drivers/CMSIS)
 add_executable(
     zeros-bluepill
     ${CMAKE_SOURCE_DIR}/example/main.cpp
+    ${CMAKE_SOURCE_DIR}/src/arch/arm_cortex_m3/fault.cpp
     ${CMAKE_SOURCE_DIR}/src/arch/arm_cortex_m3/system.cpp
     ${CMAKE_SOURCE_DIR}/src/arch/arm_cortex_m3/this_task.cpp
     ${CMAKE_SOURCE_DIR}/src/arch/arm_cortex_m3/time_kernel_cm3.cpp
@@ -16,6 +17,8 @@ add_executable(
     startup.cpp
     system_stm32f1xx.c
 )
+# the architecture-free part comes as a library, not as file names
+target_link_libraries(zeros-bluepill PRIVATE zeros_common)
 
 target_include_directories(
     zeros-bluepill

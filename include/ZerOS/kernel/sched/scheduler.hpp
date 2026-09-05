@@ -6,8 +6,8 @@
 #include "ZerOS/base/self_list.hpp"
 #include "ZerOS/kernel/clock/kernel.hpp"
 #include "ZerOS/kernel/sched/is_scheduler.hpp"
+#include "ZerOS/kernel/sched/stack_guard.hpp"
 #include "ZerOS/kernel/sched/task_control_block.hpp"
-
 namespace ZerOS::sched {
 
 template <typename Driver> struct Scheduler {

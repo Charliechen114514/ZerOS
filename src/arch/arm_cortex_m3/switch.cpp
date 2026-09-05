@@ -1,6 +1,7 @@
 #include "ZerOS/arch/arm_cortex_m3/switch.hpp"
 #include "ZerOS/arch/arm_cortex_m3/arch.hpp"
 #include "ZerOS/arch/arm_cortex_m3/trap.hpp"
+#include "ZerOS/kernel/sched/stack_guard.hpp"
 
 namespace {
 auto* const kIcsr = reinterpret_cast<volatile std::uint32_t*>(0xE000ED04);  // SCB ICSR
@@ -38,8 +39,14 @@ void fabricate_frame(ZerOS::sched::TCB& t) {
 constinit SystemScheduler system_sched{};
 
 extern "C" std::uint32_t* context_switch(std::uint32_t* saved_sp) {
+    using TaskGuardHelper = task::TaskGuardHelper;
     if (saved_sp != nullptr) {
-        TCBKeys::sp(*system_sched.current_task()) = saved_sp;
+        auto prev = system_sched.current_task();
+        TCBKeys::sp(*prev) = saved_sp;
+        if (TaskGuardHelper::fast_check_stack(*prev) &&
+            TaskGuardHelper::overflow_reporter != nullptr) {
+            TaskGuardHelper::overflow_reporter(prev, TaskGuardHelper::eaten_length(*prev));
+        }
     }
     return TCBKeys::sp(*system_sched.pick_next());
 }
@@ -70,6 +77,7 @@ extern "C" [[gnu::naked]] void PendSV_Handler() {
 }
 
 void spawn(ZerOS::sched::TCB& t) {
+    task::TaskGuardHelper::bury_canary(t);
     fabricate_frame(t);
     system_sched.add(&t);
 }
@@ -83,6 +91,7 @@ void start_scheduler(std::span<std::uint32_t> idle_stack) {
                                },
                                nullptr};
     TCBKeys::stack_view(*idle) = idle_stack;
+    task::TaskGuardHelper::bury_canary(*idle);
     fabricate_frame(*idle);
 
     *kShpr3 = (*kShpr3 & 0xFF00FFFFu) | (0xFFu << 16);

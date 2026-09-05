@@ -1,9 +1,12 @@
 // stm32f103_bluepill 板级 UART1(PA9 TX 轮询输出 / PA10 RX 中断接收)
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 
 #include "stm32f1xx.h"
+
+#include "ZerOS/log/format.hpp"
 
 namespace ZerOS::board {
 
@@ -46,15 +49,14 @@ inline void print(const char* s) {
     }
 }
 
-inline void printdec(std::uint32_t n) {
-    char buf[11];
-    char* p = buf + sizeof(buf);
-    *--p = '\0';
-    do {
-        *--p = static_cast<char>('0' + n % 10);
-        n /= 10;
-    } while (n != 0);
-    print(p);
+// one-shot formatted line: fixed buffer, polled out — task/ISR/fault safe
+template <typename... Args>
+void format(const char* f, Args... args) {
+    char buf[160];
+    const auto n = ZerOS::log::format_to(buf, f, args...);
+    for (std::size_t i = 0; i < n; ++i) {
+        uart1_putc(buf[i]);
+    }
 }
 
 } // namespace ZerOS::board

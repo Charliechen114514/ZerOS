@@ -4,13 +4,17 @@
 #include "uart.hpp"
 
 #include "ZerOS/arch/arm_cortex_m3/cm3_irq.hpp"
+#include "ZerOS/arch/arm_cortex_m3/fault.hpp"
 #include "ZerOS/arch/arm_cortex_m3/switch.hpp"
 #include "ZerOS/arch/arm_cortex_m3/sync.hpp"
+#include "ZerOS/arch/arm_cortex_m3/system.hpp"
 #include "ZerOS/arch/arm_cortex_m3/time_kernel_cm3.hpp"
 #include "ZerOS/kernel/irq/critical_section.hpp"
+#include "ZerOS/kernel/sched/stack_guard.hpp"
 #include "ZerOS/kernel/sched/task.hpp"
 #include "ZerOS/kernel/sched/task_control_block.hpp"
 #include "ZerOS/kernel/sched/this_task.hpp"
+#include "ZerOS/log/format.hpp"
 
 namespace {
 
@@ -22,7 +26,7 @@ using ZerOS::arch::cortex_m3::start_scheduler;
 
 alignas(8) constinit std::uint32_t stack_a[64] = {};
 alignas(8) constinit std::uint32_t stack_b[64] = {};
-alignas(8) constinit std::uint32_t stack_c[48] = {};
+alignas(8) constinit std::uint32_t stack_c[96] = {}; // canary 32B + ~350B usable: burns in 3-4 levels
 alignas(8) constinit std::uint32_t stack_holder[96] = {};
 alignas(8) constinit std::uint32_t stack_urgent[64] = {};
 alignas(8) constinit std::uint32_t stack_bully[64] = {};
@@ -97,7 +101,20 @@ void task_b(void*) {
     }
 }
 
-// event-sleeper: woken by the RX interrupt, not by the clock
+// 'y' smashes task C's own canary — an honest simulation of what a real
+// overflow leaves behind. (Actually burning the stack with recursion is a
+// fight against the optimizer: GCC turned three "unfolds" in a row into
+// loops. The mechanism under test — eaten sentinel → PendSV patrol →
+// report — doesn't care who ate the words.)
+void smash_canary() {
+    auto cur = ZerOS::system::os().current_task();
+    auto& view = ZerOS::sched::zeros_impl::TCBKeys::stack_view(*cur);
+    view[7] = 0; // the deepest sentinel dies first in a real overflow
+    view[6] = 0;
+}
+
+// event-sleeper: woken by the RX interrupt, not by the clock.
+// 'x' = kill the chip (hard fault demo), 'y' = overflow demo
 void task_c(void*) {
     for (;;) {
         g_rx_sem.acquire();
@@ -106,9 +123,18 @@ void task_c(void*) {
             ZerOS::irq::CriticalGuard guard{mailbox_lock};
             c = g_rx_byte;
         }
-        ZerOS::board::print("got '");
-        ZerOS::board::uart1_putc(c);
-        ZerOS::board::print("'\r\n");
+        if (c == 'x') {
+            ZerOS::board::print("c: executing an undefined instruction, goodbye\r\n");
+            asm volatile("udf #0"); // CPU-level fault: no simulator leniency here
+        } else if (c == 'y') {
+            ZerOS::board::print("c: smashing my canary\r\n");
+            smash_canary();
+            ThisTask::sleep_for(Milliseconds{2}); // next switch patrols and reports
+        } else {
+            ZerOS::board::print("got '");
+            ZerOS::board::uart1_putc(c);
+            ZerOS::board::print("'\r\n");
+        }
     }
 }
 
@@ -132,6 +158,30 @@ extern "C" void USART1_IRQHandler() {
 int main() {
     ZerOS::board::uart1_init();
     ZerOS::board::print("\r\nZerOS multi-task demo @ Blue Pill\r\n");
+
+    // the two testaments: kernel catches, board decides (print + halt)
+    ZerOS::task::TaskGuardHelper::overflow_reporter =
+        +[](ZerOS::base::BorrowedPtr<ZerOS::sched::TCB> t, std::size_t eaten) {
+            ZerOS::board::format("[STACK OVERFLOW] task={} eaten={}\r\n",
+                                 ZerOS::sched::zeros_impl::TCBKeys::name(*t),
+                                 ZerOS::log::Dec{eaten});
+            for (;;) {
+                asm volatile("wfi");
+            }
+        };
+    ZerOS::arch::cortex_m3::fault_sink = +[](const ZerOS::arch::cortex_m3::FaultReport& r) {
+        ZerOS::board::format("\r\n*** HARD FAULT *** task={} prio={}\r\n", r.task_name,
+                             ZerOS::log::Dec{r.task_prio});
+        ZerOS::board::format("pc=0x{} lr=0x{} xpsr=0x{}\r\n", ZerOS::log::Hex{r.pc},
+                             ZerOS::log::Hex{r.lr}, ZerOS::log::Hex{r.xpsr});
+        ZerOS::board::format("cfsr=0x{} hfsr=0x{} bfar=0x{}\r\n", ZerOS::log::Hex{r.cfsr},
+                             ZerOS::log::Hex{r.hfsr}, ZerOS::log::Hex{r.bfar});
+        ZerOS::board::print("stack:");
+        for (int i = 0; i < 8; ++i) {
+            ZerOS::board::format(" {}", ZerOS::log::Hex{r.frame[i]});
+        }
+        ZerOS::board::print("\r\n");
+    };
 
     auto& a =
         ZerOS::task::named("a").prio(1).stack(stack_a).entry(task_a, nullptr).spawn_into(tcb_a);

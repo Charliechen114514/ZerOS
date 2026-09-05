@@ -14,6 +14,7 @@ void SysTick_Handler();   // SystemClock
 void PendSV_Handler();    // PendSV
 void SVC_Handler();       // Supervisor call
 void USART1_IRQHandler(); // UART RX(IRQ 37)
+void HardFault_Handler(); // 现场捕获(arch fault.cpp)
 
 void reset_handler() {
     auto src = reinterpret_cast<std::uintptr_t>(&_sidata);
@@ -58,10 +59,10 @@ __attribute__((section(".isr_vector"), used)) const Isr vectors[] = {
     reinterpret_cast<Isr>(&_estack), // 0  初始 SP
     &reset_handler,                  // 1  Reset
     &fault_handler,                  // 2  NMI
-    &fault_handler,                  // 3  HardFault
-    &fault_handler,                  // 4  MemManage
-    &fault_handler,                  // 5  BusFault
-    &fault_handler,                  // 6  UsageFault
+    &HardFault_Handler,              // 3  HardFault
+    &HardFault_Handler,              // 4  MemManage(真机未使能本就升级到 3)
+    &HardFault_Handler,              // 5  BusFault(同上;仿真器可能直达)
+    &HardFault_Handler,              // 6  UsageFault(Renode 对 udf 直达此槽)
     nullptr,                         // 7-10 保留
     nullptr,
     nullptr,

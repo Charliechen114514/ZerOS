@@ -30,29 +30,23 @@ struct TCBKeys; // the keyhole, declared early so the lock knows its guard
 
 class TCB : public base::SelfNode<TCB> {
   public:
+    friend struct TaskGuardHelper;
     using StackPointer_t = std::uint32_t*;
 
     // Wait... who owns this waiter? The node sleeps inside its owner,
     // waking walks the road back from node to TCB
     [[nodiscard]] static TCB* owner_of(base::BorrowedPtr<clock::TimeWaiter> waiter) {
-        #pragma GCC diagnostic push
-        #pragma GCC diagnostic ignored "-Winvalid-offsetof"
-        return reinterpret_cast<TCB*>(
-            reinterpret_cast<std::byte*>(waiter.get()) - offsetof(TCB, action));
-        #pragma GCC diagnostic pop
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Winvalid-offsetof"
+        return reinterpret_cast<TCB*>(reinterpret_cast<std::byte*>(waiter.get()) -
+                                      offsetof(TCB, action));
+#pragma GCC diagnostic pop
     }
 
   private:
-    // Locked fields: walkers talk to the scheduler or the creator chain.
-    // Naked mechanics (the PendSV road, whitebox tests) pass through TCBKeys.
-    // A comment contract cannot stop anyone, the type system can.
     template <typename> friend struct Scheduler;
     friend class TCBCreator;
     friend struct zeros_impl::TCBKeys;
-
-    // Birth stays public (the triviality contract needs it) but a born TCB
-    // holds zero bits and no pen: only the three names above can write it.
-    // Everyone else gets a TCBStorage and hands it to the factory chain.
 
     StackPointer_t stack_pointer_{}; // always be the first
     TaskPriority_t task_priority_{};
@@ -96,11 +90,11 @@ namespace zeros_impl {
 // The keyhole for naked mechanics: the PendSV path and the whitebox tests.
 // If you are neither, you are just walking by, please use the scheduler.
 struct TCBKeys {
-    #pragma GCC diagnostic push
-    #pragma GCC diagnostic ignored "-Winvalid-offsetof"
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Winvalid-offsetof"
     static_assert(offsetof(TCB, stack_pointer_) == sizeof(base::SelfNode<TCB>),
                   "stack_pointer_ must stay immediately after the SelfNode base");
-    #pragma GCC diagnostic pop
+#pragma GCC diagnostic pop
 
     static TCB::StackPointer_t& sp(TCB& t) { return t.stack_pointer_; }
     static UserTaskWrapper& wrapper(TCB& t) { return t.task_wrapper_; }
