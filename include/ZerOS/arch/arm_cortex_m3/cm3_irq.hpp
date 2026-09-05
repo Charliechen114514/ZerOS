@@ -1,23 +1,31 @@
 #pragma once
 #include "ZerOS/kernel/clock/kernel.hpp"
 #include "ZerOS/kernel/irq/critical_section.hpp"
-#include "stm32f1xx.h"
-#include <assert.h>
 #include <cstdint>
 
 namespace ZerOS::arch::cortex_m3 {
+
+inline std::uint32_t read_basepri() {
+    std::uint32_t value = 0;
+    asm volatile("mrs %0, basepri" : "=r"(value));
+    return value;
+}
+
+inline void write_basepri(std::uint32_t value) {
+    asm volatile("msr basepri, %0" ::"r"(value) : "memory");
+}
 
 // For simple and toy, ARM and disarm currently using systicks
 struct CortexM3CriticalSection {
     void lock() {
         if (nest_++ == 0) {
-            saved_basepri_ = __get_BASEPRI();
-            __set_BASEPRI(kMaskLevel);
+            saved_basepri_ = read_basepri();
+            write_basepri(kMaskLevel);
         }
     }
     void unlock() {
         if (--nest_ == 0) {
-            __set_BASEPRI(saved_basepri_);
+            write_basepri(saved_basepri_);
         }
     }
 
