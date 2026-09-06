@@ -1,10 +1,11 @@
 # ZerOS CI — the same four gates as ./scripts/ci.sh, on a Linux runner.
-# Toolchains are PINNED tarballs, not distro packages: CI must reproduce
-# the local result, never gamble on what apt shipped this month.
-#   host:  xPack GCC 16.1.0   (local: 16.1.1 — same major, feature-equal)
-#   arm:   xPack arm-none-eabi-gcc 16.1.0 (local: 16.1.0, identical)
-# CMSIS: submodule (sparse = CMSIS headers only, ~13MB) + one orphaned
-# gitlink inside CubeF1 fetched by hand — see third_party/README.md.
+#
+# Toolchain reality check (2026-09-06):
+#   xPack has NOT released GCC 16 yet (latest: arm 15.2.1, host 15.2.0).
+#   Local dev uses Arch GCC 16.1 — but no 16-specific features are used
+#   (D4 floor: GCC 14 for deducing this). CI runs on:
+#     host: ubuntu-24.04 apt g++-14 (zero download, always there)
+#     arm:  xPack arm-none-eabi-gcc 15.2.1 (pinned tarball)
 
 name: ci
 on:
@@ -15,17 +16,13 @@ jobs:
   gates:
     runs-on: ubuntu-24.04
     env:
-      XPACK_HOST_GCC: https://github.com/xpack-dev-tools/gcc-xpack/releases/download/v16.1.0-1/xpack-gcc-16.1.0-1-linux-x64.tar.gz
-      XPACK_ARM_GCC: https://github.com/xpack-dev-tools/gcc-arm-none-eabi-xpack/releases/download/v16.1.0-1/xpack-arm-none-eabi-gcc-16.1.0-1-linux-x64.tar.gz
+      XPACK_ARM_GCC: https://github.com/xpack-dev-tools/arm-none-eabi-gcc-xpack/releases/download/v15.2.1-1.1/xpack-arm-none-eabi-gcc-15.2.1-1.1-linux-x64.tar.gz
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: true    # pulls third_party/STM32CubeF1 (main submodule)
+          submodules: true
 
       - name: sparse the submodule to CMSIS only + fetch the orphaned gitlink
-        # CubeF1 upstream has broken gitlinks (no .gitmodules entries) —
-        # recursive update always fails; sparse to CMSIS and pull the
-        # pinned SHA by hand (full story: .claude/docs/architecture.md)
         run: |
           cd third_party/STM32CubeF1
           git sparse-checkout set --no-cone \
@@ -37,15 +34,16 @@ jobs:
           git -C Drivers/CMSIS/Device/ST/STM32F1xx fetch --depth 1 origin master
           git -C Drivers/CMSIS/Device/ST/STM32F1xx checkout c8e9a4a4
 
-      - name: pin toolchains (host GCC 16 + arm-none-eabi GCC 16)
-        run: |
-          mkdir -p /opt/xpack && cd /opt/xpack
-          curl -sSL "$XPACK_HOST_GCC" | tar xz
-          curl -sSL "$XPACK_ARM_GCC"  | tar xz
-          echo "/opt/xpack/xpack-gcc-16.1.0-1/bin"               >> "$GITHUB_PATH"
-          echo "/opt/xpack/xpack-arm-none-eabi-gcc-16.1.0-1/bin" >> "$GITHUB_PATH"
+      - name: host g++-14 (apt, no tarball)
+        run: sudo apt-get update && sudo apt-get install -y g++-14
 
-      - name: install renode (official apt repo)
+      - name: arm-none-eabi-gcc 15.2.1 (xPack, pinned)
+        run: |
+          mkdir -p /opt/xpack
+          curl -sSL "$XPACK_ARM_GCC" | tar xz -C /opt/xpack
+          echo "/opt/xpack/xpack-arm-none-eabi-gcc-15.2.1-1.1/bin" >> "$GITHUB_PATH"
+
+      - name: renode
         run: |
           sudo apt-get update
           sudo apt-get install -y renode || {
@@ -55,4 +53,6 @@ jobs:
           }
 
       - name: the four gates
+        env:
+          CXX: g++-14
         run: ./scripts/ci.sh
