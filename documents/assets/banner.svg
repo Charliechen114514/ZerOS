@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="280" viewBox="0 0 1200 280" role="img" aria-label="ZerOS banner">
+  <!-- ground -->
+  <rect width="1200" height="280" rx="12" fill="#0d1117"/>
+
+  <!-- faint grid, board-schematic flavor -->
+  <g stroke="#161b22" stroke-width="1">
+    <path d="M0 70 H1200 M0 140 H1200 M0 210 H1200"/>
+    <path d="M150 0 V280 M300 0 V280 M450 0 V280 M600 0 V280 M750 0 V280 M900 0 V280 M1050 0 V280"/>
+  </g>
+
+  <!-- title block -->
+  <text x="60" y="118" font-family="ui-monospace, Menlo, Consolas, monospace"
+        font-size="78" font-weight="700" fill="#e6edf3">ZerOS</text>
+  <text x="60" y="150" font-family="ui-monospace, Menlo, Consolas, monospace"
+        font-size="19" fill="#8b949e">a toy C++23 embedded RTOS</text>
+
+  <!-- heartbeat trace: the first demo, running through the banner -->
+  <polyline points="60,205 150,205 178,205 198,158 222,244 244,178 262,205 356,205 384,205 404,158 428,244 450,178 468,205 560,205 588,205 608,158 632,244 654,178 672,205 760,205"
+            fill="none" stroke="#3fb950" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+  <circle cx="760" cy="205" r="4" fill="#3fb950"/>
+  <text x="778" y="211" font-family="ui-monospace, Menlo, Consolas, monospace"
+        font-size="15" fill="#3fb950">alive</text>
+
+  <!-- the four targets, right column -->
+  <g font-family="ui-monospace, Menlo, Consolas, monospace" font-size="16">
+    <rect x="940" y="52"  width="200" height="34" rx="17" fill="none" stroke="#58a6ff" stroke-width="1.5"/>
+    <text x="968" y="74" fill="#58a6ff">host</text>
+    <rect x="940" y="100" width="200" height="34" rx="17" fill="none" stroke="#58a6ff" stroke-width="1.5"/>
+    <text x="968" y="122" fill="#58a6ff">renode</text>
+    <rect x="940" y="148" width="200" height="34" rx="17" fill="none" stroke="#58a6ff" stroke-width="1.5"/>
+    <text x="968" y="170" fill="#58a6ff">qemu mps2</text>
+    <rect x="940" y="196" width="200" height="34" rx="17" fill="none" stroke="#3fb950" stroke-width="1.5"/>
+    <text x="968" y="218" fill="#3fb950">silicon</text>
+  </g>
+
+  <!-- the four refusals, left-bottom -->
+  <text x="60" y="248" font-family="ui-monospace, Menlo, Consolas, monospace"
+        font-size="15" fill="#f85149">no heap · no rtti · no exceptions · no c abi</text>
+</svg>

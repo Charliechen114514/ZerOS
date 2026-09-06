@@ -3,7 +3,9 @@
 # build artifacts
 build*/
 
-# Ignores Log files
+# log files
 *.log
-*.log.*run.log*
+*.log.*
+run.log*
 renode-*.log
+qemu-*.log

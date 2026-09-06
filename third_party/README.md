@@ -6,7 +6,7 @@
     cd third_party/STM32CubeF1 && git sparse-checkout set --no-cone \
         '/Drivers/CMSIS/Include/**' '/Drivers/CMSIS/Device/**' '/Drivers/CMSIS/LICENSE.txt'
 
-孤儿 gitlink(上游 bug,详见 .claude/docs/architecture.md):
+孤儿 gitlink(上游仓库把 Device 目录做成了无 .gitmodules 映射的嵌套 gitlink):
     Drivers/CMSIS/Device/ST/STM32F1xx 是无 .gitmodules 映射的孤儿,需手动拉:
     git -C third_party/STM32CubeF1 clone --filter=blob:none --no-checkout \
         https://github.com/STMicroelectronics/cmsis-device-f1.git Drivers/CMSIS/Device/ST/STM32F1xx
