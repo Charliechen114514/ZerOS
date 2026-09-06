@@ -89,12 +89,13 @@ check_smoke() {
             || fail "pre-build $demo: ELF not produced"
     done
 
-    # simulate all in parallel — call renode directly (no cmake, no locks)
+    # simulate sequentially — a CI runner has 2-4 cores, 8 concurrent
+    # Renode instances starve each other and virtual time barely advances;
+    # 5s per demo × 8 = ~40s total, acceptable for CI
     local tmpdir root resc
     tmpdir=$(mktemp -d)
     root="$(pwd)"
     resc=src/board/stm32f103_bluepill/sim/renode/bluepill.resc
-    local pids=()
     for demo in "${!MARK[@]}"; do
         local elf="$ARM_DIR/src/board/stm32f103_bluepill/example/$demo/zeros-demo-$demo.elf"
         [ -f "$elf" ] || fail "ELF missing: $elf"
@@ -106,12 +107,7 @@ check_smoke() {
                 -e "include @${resc}" \
                 -e "start" -e "sleep 5" -e "quit" \
                 > /dev/null 2>&1
-        ) &
-        pids+=($!)
-    done
-
-    for i in "${!pids[@]}"; do
-        wait "${pids[$i]}" || true
+        )
     done
 
     local failed=0
