@@ -1,4 +1,4 @@
-# ZerOS CI — runs ./scripts/ci.sh on a Linux runner.
+# ZerOS CI — runs ./scripts/ci.sh on a Linux runner, one step per check.
 #
 # Toolchain reality check (2026-09-06):
 #   xPack has NOT released GCC 16 yet (latest: arm 15.2.1, host 15.2.0).
@@ -51,7 +51,18 @@ jobs:
             | tar xz --strip-components=1 -C /opt/renode
           echo /opt/renode >> "$GITHUB_PATH"
 
-      - name: run all checks
+      # -- one step per check: Actions UI folds each into its own section --
+
+      - name: host unit tests
         env:
           CXX: g++-14
-        run: ./scripts/ci.sh
+        run: ./scripts/ci.sh host
+
+      - name: include hygiene
+        run: ./scripts/ci.sh hygiene
+
+      - name: cross build + size limits
+        run: ./scripts/ci.sh size
+
+      - name: renode behavior check
+        run: ./scripts/ci.sh smoke
