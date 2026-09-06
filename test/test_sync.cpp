@@ -73,6 +73,22 @@ struct FakeSys {
     }
     void arm_timer(BorrowedPtr<TimeWaiter> w, Ticks::tick_t span) { time_->call_after_span(w, span); }
     void cancel_timer(BorrowedPtr<TimeWaiter> w) { time_->cancel(w); }
+    bool notify(BorrowedPtr<TCB> t, std::uint32_t v) { return sched_->notify(t, v); }
+    std::expected<std::uint32_t, ZerOS::sync::SyncError> wait_notify(Ticks::tick_t span) {
+        // re-check loop lives HERE: the sleep below runs through this mock's
+        // own hooks (during_sleep), which a kernel-side loop would bypass
+        const auto ddl = time_->current().tick_ + span;
+        for (;;) {
+            if (auto letter = sched_->wait_notify(); letter.has_value()) {
+                return letter;
+            }
+            const auto left = static_cast<Ticks::tick_diff_t>(ddl - time_->current().tick_);
+            if (left <= 0) {
+                return std::unexpected(ZerOS::sync::SyncError::TimedOut);
+            }
+            sleep_for(current_task(), static_cast<Ticks::tick_t>(left));
+        }
+    }
     void lock() {}
     void unlock() {}
 };

@@ -27,6 +27,11 @@ struct SystemTaskBackend {
     }
 
     static ZerOS::clock::Ticks now() noexcept { return os().now(); }
+
+    static std::expected<std::uint32_t, ZerOS::sync::SyncError>
+    wait_notify(Milliseconds timeout) noexcept {
+        return os().wait_notify(timeout.count);
+    }
 };
 
 } // namespace ZerOS::detail

@@ -31,14 +31,18 @@ struct QueueBase {
         }
         return pop_ring();
     }
-    // Post one message
-    QueueError post(const Message& m) {
+    // Post one message without ever sleeping — the ONLY post an ISR may call
+    QueueError post(const Message& m) noexcept { return post_for(m, TRY_RECEIVE_TIME); }
+
+    // Task-side post with back-pressure: on a full ring, SLEEP until a slot
+    // frees or the time runs out. Never call this from an interrupt.
+    QueueError post_for(const Message& m, clock::Milliseconds timeout) noexcept {
+        if (spaces_.try_acquire(timeout) != SyncError::Ok) {
+            return timeout.count == 0 ? QueueError::Full : QueueError::Timeout;
+        }
         auto& sys = System::self();
         ZerOS::irq::CriticalGuard g{sys};
-        if (count_ == capacity) {
-            return QueueError::Full;
-        }
-        ring_[(head_ + count_) & (capacity - 1)] = m;
+        ring_[(head_ + count_) & (capacity - 1)] = m; // slot is already reserved
         ++count_;
         semaphore.release(); // the unit is handed out only AFTER the data landed
         return QueueError::Ok;
@@ -52,11 +56,13 @@ struct QueueBase {
         // pop one, we need to move our head!
         head_ = (head_ + 1) & (capacity - 1);
         --count_;
+        spaces_.release(); // a slot just freed — sleeping senders may take it
         return out; // explicit make
     }
 
   private:
-    SemaphoreBase<System> semaphore{0}; // zero units: the ring starts empty
+    SemaphoreBase<System> semaphore{0};       // units: "there is data"
+    SemaphoreBase<System> spaces_{capacity};  // slots: "there is room"
     Message ring_[Capacity]{};
     std::size_t head_{};
     std::size_t count_{};

@@ -57,6 +57,11 @@ class TCB : public base::SelfNode<TCB> {
     clock::TimeWaiter action{};
     UserTaskWrapper task_wrapper_{};
     std::span<std::uint32_t> stack_view_{};
+
+    // the task's private mailbox: direct notifications, no kernel object.
+    // Single slot, LATEST value wins (overwrite) — see Scheduler::notify.
+    std::uint32_t notify_{};
+    bool has_notify_{};
 };
 
 // Meaning-free RAM: zero it, park it. The only pen that writes meaning

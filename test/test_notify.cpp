@@ -3,19 +3,20 @@
 #include <cstdint>
 #include <functional>
 
+#include "ZerOS/kernel/clock/durations.hpp"
 #include "ZerOS/kernel/clock/kernel.hpp"
-#include "ZerOS/kernel/clock/timer.hpp"
 #include "ZerOS/kernel/sched/scheduler.hpp"
 #include "ZerOS/kernel/sched/task.hpp"
+#include "ZerOS/kernel/system_concept.hpp"
 
 using ZerOS::base::BorrowedPtr;
 using ZerOS::clock::Kernel;
 using ZerOS::clock::Milliseconds;
 using ZerOS::clock::TimeWaiter;
 using ZerOS::clock::Ticks;
-using ZerOS::clock::TimerBase;
 using ZerOS::sched::Scheduler;
 using ZerOS::sched::TCB;
+using ZerOS::sync::SyncError;
 
 namespace {
 
@@ -34,8 +35,7 @@ struct SleepPort {
     void unlock() {}
 };
 
-// Mock doctrine, timer flavor: a timer never touches tasks, so no stage
-// model here — just bind the clock and drive virtual time by hand
+// Mock doctrine, mailbox flavor
 struct FakeSys {
     static inline Scheduler<HostSwitchPort>* sched_;
     static inline Kernel<SleepPort>* time_;
@@ -71,8 +71,7 @@ struct FakeSys {
     void cancel_timer(BorrowedPtr<TimeWaiter> w) { time_->cancel(w); }
     bool notify(BorrowedPtr<TCB> t, std::uint32_t v) { return sched_->notify(t, v); }
     std::expected<std::uint32_t, ZerOS::sync::SyncError> wait_notify(Ticks::tick_t span) {
-        // re-check loop lives HERE: the sleep below runs through this mock's
-        // own hooks (during_sleep), which a kernel-side loop would bypass
+        // the re-check loop lives HERE, sleeping through this mock's hooks
         const auto ddl = time_->current().tick_ + span;
         for (;;) {
             if (auto letter = sched_->wait_notify(); letter.has_value()) {
@@ -93,94 +92,76 @@ FakeSys FakeSys::the_one{};
 
 static_assert(ZerOS::system::SystemContext<FakeSys>);
 
-int g_fires = 0;
+constexpr auto kNoopEntry = +[](void*) {};
 
 struct World {
     Scheduler<HostSwitchPort> sched;
     Kernel<SleepPort> time;
+    ZerOS::sched::TCBStorage storage{};
+    TCB& task;
 
-    World() {
+    World()
+        : task(ZerOS::task::named("t")
+                   .prio(1)
+                   .stack(std::span<std::uint32_t>{})
+                   .entry(kNoopEntry, nullptr)
+                   .spawn_into(storage)) {
         FakeSys::sched_ = &sched;
         FakeSys::time_ = &time;
         FakeSys::during_sleep = nullptr;
         g_switch_requests = 0;
-        g_fires = 0;
+        sched.add(&task);
+        REQUIRE(sched.pick_next().get() == &task);
+    }
+
+    std::expected<std::uint32_t, SyncError> wait_notify(Milliseconds t) {
+        return FakeSys::self().wait_notify(t.count);
     }
 };
 
-using Tmr = TimerBase<FakeSys>;
-
-constexpr auto kCounting = +[](void*) { ++g_fires; };
-
 } // namespace
 
-TEST_CASE("oneshot fires exactly on time, not a tick earlier", "[timer]") {
+TEST_CASE("an empty mailbox try comes back empty-handed", "[notify]") {
     World w;
-    Tmr t;
-
-    t.oneshot(Milliseconds{5}, kCounting, nullptr);
-    w.time.on_elapsed(4);
-    CHECK(g_fires == 0); // one tick early: silence
-    w.time.on_elapsed(1);
-    CHECK(g_fires == 1); // right on the deadline
+    auto miss = w.wait_notify(Milliseconds{0});
+    REQUIRE_FALSE(miss.has_value());
+    CHECK(miss.error() == SyncError::TimedOut);
 }
 
-TEST_CASE("a fired oneshot goes cold — time keeps running, it does not", "[timer]") {
+TEST_CASE("taking the letter clears the flag: second read is empty", "[notify]") {
     World w;
-    Tmr t;
 
-    t.oneshot(Milliseconds{3}, kCounting, nullptr);
-    w.time.on_elapsed(3);
-    w.time.on_elapsed(100); // a century later
-    CHECK(g_fires == 1);
+    REQUIRE(FakeSys::sched_->notify(&w.task, 42));
+    auto got = w.wait_notify(Milliseconds{0});
+    REQUIRE(got.has_value());
+    CHECK(*got == 42);
+
+    auto again = w.wait_notify(Milliseconds{0}); // the flag went with the letter
+    CHECK_FALSE(again.has_value());
 }
 
-TEST_CASE("periodic keeps firing every period", "[timer]") {
+TEST_CASE("single slot, latest wins: two drops, one read, the NEWEST value", "[notify]") {
     World w;
-    Tmr t;
 
-    t.periodic(Milliseconds{7}, kCounting, nullptr);
-    for (int round = 1; round <= 3; ++round) {
-        w.time.on_elapsed(7);
-        CHECK(g_fires == round);
-    }
+    REQUIRE(FakeSys::sched_->notify(&w.task, 1));
+    REQUIRE(FakeSys::sched_->notify(&w.task, 2)); // overwrites — by design
+    auto got = w.wait_notify(Milliseconds{0});
+    REQUIRE(got.has_value());
+    CHECK(*got == 2);
 }
 
-TEST_CASE("stop strikes the booking off the ledger", "[timer]") {
+TEST_CASE("a notify while parked lands the letter and wakes the owner", "[notify]") {
     World w;
-    Tmr t;
 
-    t.periodic(Milliseconds{5}, kCounting, nullptr);
-    t.stop();
-    w.time.on_elapsed(50); // nothing booked, nothing fires
-    CHECK(g_fires == 0);
-}
-
-TEST_CASE("a periodic may stop ITSELF from inside its own fn", "[timer]") {
-    World w;
-    Tmr t;
-
-    constexpr auto self_destruct = +[](void* self) {
-        ++g_fires;
-        static_cast<Tmr*>(self)->stop(); // suicide note, honored
+    FakeSys::during_sleep = [&w] {
+        REQUIRE(FakeSys::sched_->notify(&w.task, 7)); // the world drops a letter
     };
-    t.periodic(Milliseconds{4}, self_destruct, &t);
-
-    w.time.on_elapsed(4);
-    CHECK(g_fires == 1);
-    w.time.on_elapsed(40); // dead by its own hand: no further fires
-    CHECK(g_fires == 1);
+    auto got = w.wait_notify(Milliseconds{5});
+    REQUIRE(got.has_value());
+    CHECK(*got == 7);
 }
 
-TEST_CASE("a cold oneshot can be armed again", "[timer]") {
+TEST_CASE("notifying nobody is refused, not ignored silently", "[notify]") {
     World w;
-    Tmr t;
-
-    t.oneshot(Milliseconds{2}, kCounting, nullptr);
-    w.time.on_elapsed(2);
-    CHECK(g_fires == 1);
-
-    t.oneshot(Milliseconds{9}, kCounting, nullptr); // second life
-    w.time.on_elapsed(9);
-    CHECK(g_fires == 2);
+    CHECK_FALSE(FakeSys::sched_->notify({}, 9));
 }

@@ -10,6 +10,8 @@
 #include "ZerOS/kernel/sched/stack_guard.hpp"
 #include "ZerOS/kernel/sched/task_control_block.hpp"
 #include "ZerOS/kernel/sched/types.hpp"
+#include "ZerOS/kernel/sync/sync_error.hpp"
+#include <expected>
 namespace ZerOS::sched {
 
 template <typename Driver> struct Scheduler {
@@ -108,6 +110,37 @@ template <typename Driver> struct Scheduler {
 
     // a plain read; diagnostics and the boost-or-not decision both want it
     [[nodiscard]] TaskPriority_t prio(base::BorrowedPtr<TCB> t) const { return t->task_priority_; }
+
+    // Direct-to-task mailbox drop. Task/ISR safe. Single slot, OVERWRITE:
+    // the latest value wins. The target may be parked ANYWHERE (a semaphore,
+    // a queue, a sleep) — the ready() below may wake it "by mistake", and
+    // that is fine: every waiter family re-checks its own truth on waking
+    // and simply goes back to sleep; the mailbox owner checks has_notify_.
+    bool notify(base::BorrowedPtr<TCB> t, std::uint32_t value) noexcept {
+        irq::CriticalGuard guard{driver_};
+        if (!t || t == &idle_) {
+            return false;
+        }
+        t->notify_ = value;
+        t->has_notify_ = true;
+        if (t->state_ == TaskState::Blocked) {
+            ready(t); // nested guard; pends the switch, never switches here
+        }
+        return true;
+    }
+
+    // the current task reads its mailbox; taking the letter clears the flag.
+    // ONE atomic probe only — the re-check loop lives in the system face,
+    // whose sleep goes through the door the Mock can see (an inner
+    // Scheduler-side loop would park via kernel-direct block and dodge it)
+    std::expected<std::uint32_t, sync::SyncError> wait_notify() noexcept {
+        irq::CriticalGuard guard{driver_};
+        if (current_ != nullptr && current_->has_notify_) {
+            current_->has_notify_ = false;
+            return current_->notify_;
+        }
+        return std::unexpected(sync::SyncError::TimedOut);
+    }
 
     [[nodiscard]] base::BorrowedPtr<TCB> fetch_idle_task() { return &idle_; }
 

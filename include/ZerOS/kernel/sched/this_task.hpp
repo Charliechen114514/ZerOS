@@ -1,8 +1,10 @@
 #pragma once
 #include <cstdint>
+#include <expected>
 
 #include "ZerOS/kernel/clock/durations.hpp"
 #include "ZerOS/kernel/clock/ticks.hpp"
+#include "ZerOS/kernel/sync/sync_error.hpp"
 
 namespace ZerOS {
 
@@ -22,6 +24,9 @@ template <class Backend> struct BasicThisTask {
     // (semaphores and friends) will grow on top of this
     static void block() noexcept;
     [[nodiscard]] static ZerOS::clock::Ticks now() noexcept;
+    // read the mailbox: zero = one try, otherwise wait up to `timeout`
+    [[nodiscard]] static std::expected<std::uint32_t, ZerOS::sync::SyncError>
+    wait_notify(ZerOS::clock::Milliseconds timeout) noexcept;
 };
 
 extern template struct BasicThisTask<detail::SystemTaskBackend>;

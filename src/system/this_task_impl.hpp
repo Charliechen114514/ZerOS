@@ -17,6 +17,8 @@ concept TaskBackend = requires(Milliseconds delay) {
     { B::yield() } noexcept -> std::same_as<void>;
     { B::block() } noexcept -> std::same_as<void>;
     { B::now() } noexcept -> std::same_as<clock::Ticks>;
+    { B::wait_notify(Milliseconds{}) } noexcept
+        -> std::same_as<std::expected<std::uint32_t, sync::SyncError>>;
 };
 } // namespace detail
 
@@ -42,6 +44,13 @@ template <class B>
 clock::Ticks BasicThisTask<B>::now() noexcept {
     static_assert(detail::TaskBackend<B>);
     return B::now();
+}
+
+template <class B>
+std::expected<std::uint32_t, sync::SyncError>
+BasicThisTask<B>::wait_notify(Milliseconds timeout) noexcept {
+    static_assert(detail::TaskBackend<B>);
+    return B::wait_notify(timeout);
 }
 
 } // namespace ZerOS

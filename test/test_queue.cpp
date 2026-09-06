@@ -70,6 +70,22 @@ struct FakeSys {
     }
     void arm_timer(BorrowedPtr<TimeWaiter> w, Ticks::tick_t span) { time_->call_after_span(w, span); }
     void cancel_timer(BorrowedPtr<TimeWaiter> w) { time_->cancel(w); }
+    bool notify(BorrowedPtr<TCB> t, std::uint32_t v) { return sched_->notify(t, v); }
+    std::expected<std::uint32_t, ZerOS::sync::SyncError> wait_notify(Ticks::tick_t span) {
+        // re-check loop lives HERE: the sleep below runs through this mock's
+        // own hooks (during_sleep), which a kernel-side loop would bypass
+        const auto ddl = time_->current().tick_ + span;
+        for (;;) {
+            if (auto letter = sched_->wait_notify(); letter.has_value()) {
+                return letter;
+            }
+            const auto left = static_cast<Ticks::tick_diff_t>(ddl - time_->current().tick_);
+            if (left <= 0) {
+                return std::unexpected(ZerOS::sync::SyncError::TimedOut);
+            }
+            sleep_for(current_task(), static_cast<Ticks::tick_t>(left));
+        }
+    }
     void lock() {}
     void unlock() {}
 };
@@ -195,4 +211,48 @@ TEST_CASE("forever receive returns only when handed a message", "[queue]") {
     auto got = q.receive_one();
     REQUIRE(got.has_value());
     CHECK(*got == 'k');
+}
+
+TEST_CASE("post on a full ring stays non-blocking and returns Full", "[queue]") {
+    World w;
+    Q q;
+
+    for (char c : {'1', '2', '3', '4'}) {
+        REQUIRE(q.post(c) == QueueError::Ok);
+    }
+    CHECK(q.post('5') == QueueError::Full); // the ISR-grade behavior, unchanged
+}
+
+TEST_CASE("post_for on a full ring times out honestly", "[queue]") {
+    World w;
+    Q q;
+
+    for (char c : {'1', '2', '3', '4'}) {
+        REQUIRE(q.post(c) == QueueError::Ok);
+    }
+    FakeSys::during_sleep = [&w] { w.time.on_elapsed(5); }; // time runs out, no room
+    CHECK(q.post_for('5', Milliseconds{5}) == QueueError::Timeout);
+}
+
+TEST_CASE("post_for sleeps until a receive frees a slot (back pressure)", "[queue]") {
+    World w;
+    Q q;
+
+    for (char c : {'1', '2', '3', '4'}) {
+        REQUIRE(q.post(c) == QueueError::Ok);
+    }
+    FakeSys::during_sleep = [&q] {
+        // the world drains one message while the sender sleeps — a slot frees
+        auto got = q.receive_one(Milliseconds{0});
+        REQUIRE(got.has_value());
+        CHECK(*got == '1');
+    };
+    CHECK(q.post_for('5', Milliseconds{50}) == QueueError::Ok);
+
+    // the ring now holds 2,3,4,5 in order — the sleeper kept its place:
+    for (char c : {'2', '3', '4', '5'}) {
+        auto got = q.receive_one(Milliseconds{0});
+        REQUIRE(got.has_value());
+        CHECK(*got == c);
+    }
 }

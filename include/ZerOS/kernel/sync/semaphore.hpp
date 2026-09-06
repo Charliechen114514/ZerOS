@@ -4,10 +4,10 @@
 #include "ZerOS/kernel/clock/durations.hpp"
 #include "ZerOS/kernel/irq/critical_section.hpp"
 #include "ZerOS/kernel/sched/task_control_block.hpp"
+#include "ZerOS/kernel/sync/sync_error.hpp"
 #include "ZerOS/kernel/system_concept.hpp"
 #include <cstdint>
 namespace ZerOS::sync {
-enum class SyncError : std::uint8_t { Ok, TimedOut };
 
 struct SemaWaiter : base::SelfNode<SemaWaiter> {
     constexpr explicit SemaWaiter(sched::TCB* task) noexcept : task_(task) {}

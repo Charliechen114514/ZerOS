@@ -4,18 +4,19 @@
 #include <functional>
 
 #include "ZerOS/kernel/clock/kernel.hpp"
-#include "ZerOS/kernel/clock/timer.hpp"
 #include "ZerOS/kernel/sched/scheduler.hpp"
 #include "ZerOS/kernel/sched/task.hpp"
+#include "ZerOS/kernel/sync/event_group.hpp"
 
 using ZerOS::base::BorrowedPtr;
 using ZerOS::clock::Kernel;
 using ZerOS::clock::Milliseconds;
 using ZerOS::clock::TimeWaiter;
 using ZerOS::clock::Ticks;
-using ZerOS::clock::TimerBase;
 using ZerOS::sched::Scheduler;
 using ZerOS::sched::TCB;
+using ZerOS::sync::EventBase;
+using ZerOS::sync::SyncError;
 
 namespace {
 
@@ -34,8 +35,8 @@ struct SleepPort {
     void unlock() {}
 };
 
-// Mock doctrine, timer flavor: a timer never touches tasks, so no stage
-// model here — just bind the clock and drive virtual time by hand
+// Mock doctrine, event flavor: during_sleep runs "the world" (set bits,
+// run the clock) while the waiting task is parked
 struct FakeSys {
     static inline Scheduler<HostSwitchPort>* sched_;
     static inline Kernel<SleepPort>* time_;
@@ -93,94 +94,110 @@ FakeSys FakeSys::the_one{};
 
 static_assert(ZerOS::system::SystemContext<FakeSys>);
 
-int g_fires = 0;
+constexpr auto kNoopEntry = +[](void*) {};
 
 struct World {
     Scheduler<HostSwitchPort> sched;
     Kernel<SleepPort> time;
+    ZerOS::sched::TCBStorage storage{};
+    TCB& task;
 
-    World() {
+    World()
+        : task(ZerOS::task::named("t")
+                   .prio(1)
+                   .stack(std::span<std::uint32_t>{})
+                   .entry(kNoopEntry, nullptr)
+                   .spawn_into(storage)) {
         FakeSys::sched_ = &sched;
         FakeSys::time_ = &time;
         FakeSys::during_sleep = nullptr;
         g_switch_requests = 0;
-        g_fires = 0;
+        sched.add(&task);
+        REQUIRE(sched.pick_next().get() == &task);
     }
 };
 
-using Tmr = TimerBase<FakeSys>;
-
-constexpr auto kCounting = +[](void*) { ++g_fires; };
+using Evt = EventBase<FakeSys>;
 
 } // namespace
 
-TEST_CASE("oneshot fires exactly on time, not a tick earlier", "[timer]") {
+TEST_CASE("a try on dark bits times out; any lit bit satisfies OR", "[event]") {
     World w;
-    Tmr t;
+    Evt e;
 
-    t.oneshot(Milliseconds{5}, kCounting, nullptr);
-    w.time.on_elapsed(4);
-    CHECK(g_fires == 0); // one tick early: silence
-    w.time.on_elapsed(1);
-    CHECK(g_fires == 1); // right on the deadline
+    auto dark = e.wait(0b0011, false, Milliseconds{0});
+    REQUIRE_FALSE(dark.has_value());
+    CHECK(dark.error() == SyncError::TimedOut);
+
+    e.set(0b0001);
+    auto lit = e.wait(0b0011, false, Milliseconds{0});
+    REQUIRE(lit.has_value());
+    CHECK(*lit == 0b0001);
 }
 
-TEST_CASE("a fired oneshot goes cold — time keeps running, it does not", "[timer]") {
+TEST_CASE("AND stays asleep until the WHOLE mask is lit", "[event]") {
     World w;
-    Tmr t;
+    Evt e;
 
-    t.oneshot(Milliseconds{3}, kCounting, nullptr);
-    w.time.on_elapsed(3);
-    w.time.on_elapsed(100); // a century later
-    CHECK(g_fires == 1);
+    e.set(0b0001); // half of the mask — not enough for all_of
+    auto early = e.wait(0b0011, true, Milliseconds{0});
+    CHECK_FALSE(early.has_value());
+
+    e.set(0b0010); // ...and now the pair is complete
+    auto full = e.wait(0b0011, true, Milliseconds{0});
+    REQUIRE(full.has_value());
+    CHECK(*full == 0b0011);
 }
 
-TEST_CASE("periodic keeps firing every period", "[timer]") {
+TEST_CASE("a timed wait reports an honest timeout", "[event]") {
     World w;
-    Tmr t;
+    Evt e;
 
-    t.periodic(Milliseconds{7}, kCounting, nullptr);
-    for (int round = 1; round <= 3; ++round) {
-        w.time.on_elapsed(7);
-        CHECK(g_fires == round);
-    }
+    FakeSys::during_sleep = [&w] { w.time.on_elapsed(5); }; // time runs out, no bit
+    CHECK_FALSE(e.wait(0b0100, false, Milliseconds{5}).has_value());
 }
 
-TEST_CASE("stop strikes the booking off the ledger", "[timer]") {
+TEST_CASE("a set() while parked broadcasts the waiter awake", "[event]") {
     World w;
-    Tmr t;
+    Evt e;
 
-    t.periodic(Milliseconds{5}, kCounting, nullptr);
-    t.stop();
-    w.time.on_elapsed(50); // nothing booked, nothing fires
-    CHECK(g_fires == 0);
+    FakeSys::during_sleep = [&e] { e.set(0b0100); }; // the world lights it on time
+    auto got = e.wait(0b0100, false, Milliseconds{5});
+    REQUIRE(got.has_value());
+    CHECK(*got == 0b0100);
 }
 
-TEST_CASE("a periodic may stop ITSELF from inside its own fn", "[timer]") {
+TEST_CASE("clear() turns the light off again", "[event]") {
     World w;
-    Tmr t;
+    Evt e;
 
-    constexpr auto self_destruct = +[](void* self) {
-        ++g_fires;
-        static_cast<Tmr*>(self)->stop(); // suicide note, honored
-    };
-    t.periodic(Milliseconds{4}, self_destruct, &t);
-
-    w.time.on_elapsed(4);
-    CHECK(g_fires == 1);
-    w.time.on_elapsed(40); // dead by its own hand: no further fires
-    CHECK(g_fires == 1);
+    e.set(0b1000);
+    e.clear(0b1000);
+    CHECK_FALSE(e.wait(0b1000, false, Milliseconds{0}).has_value());
 }
 
-TEST_CASE("a cold oneshot can be armed again", "[timer]") {
+TEST_CASE("events are states, not consumptions: same bit waits twice", "[event]") {
     World w;
-    Tmr t;
+    Evt e;
 
-    t.oneshot(Milliseconds{2}, kCounting, nullptr);
-    w.time.on_elapsed(2);
-    CHECK(g_fires == 1);
-
-    t.oneshot(Milliseconds{9}, kCounting, nullptr); // second life
-    w.time.on_elapsed(9);
-    CHECK(g_fires == 2);
+    e.set(0b0101);
+    auto first = e.wait(0b0101, true, Milliseconds{0});
+    auto second = e.wait(0b0101, true, Milliseconds{0}); // nobody set anything again
+    REQUIRE(first.has_value());
+    REQUIRE(second.has_value()); // still lit — no take-one-lose-one here
+    CHECK(*first == 0b0101);
+    CHECK(*second == 0b0101);
 }
+
+TEST_CASE("forever wait returns only when the bit lights up", "[event]") {
+    World w;
+    Evt e;
+
+    FakeSys::during_sleep = [&e] { e.set(0b1000); };
+    auto got = e.wait(0b1000, false);
+    REQUIRE(got.has_value());
+    CHECK(*got == 0b1000);
+}
+
+// Multi-waiter broadcast (two tasks waking from ONE set) cannot park two
+// waiters on this single-threaded Mock — left to the Renode demo / silicon.

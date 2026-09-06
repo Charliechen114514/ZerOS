@@ -10,7 +10,10 @@
 #include "ZerOS/kernel/clock/clock.hpp"
 #include "ZerOS/kernel/clock/ticks.hpp"
 #include "ZerOS/kernel/sched/task_control_block.hpp"
+#include "ZerOS/kernel/sync/sync_error.hpp"
 #include "ZerOS/kernel/system_concept.hpp"
+
+#include <expected>
 
 namespace ZerOS::arch::cortex_m3 {
 
@@ -29,6 +32,8 @@ class CortexM3System {
     void reprioritize(base::BorrowedPtr<sched::TCB> t, sched::TaskPriority_t new_prio);
     void arm_timer(base::BorrowedPtr<clock::TimeWaiter> w, clock::Ticks::tick_t span);
     void cancel_timer(base::BorrowedPtr<clock::TimeWaiter> w);
+    bool notify(base::BorrowedPtr<sched::TCB> t, std::uint32_t value);
+    std::expected<std::uint32_t, sync::SyncError> wait_notify(clock::Ticks::tick_t span);
     void lock();
     void unlock();
 

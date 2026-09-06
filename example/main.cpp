@@ -61,6 +61,45 @@ void timer_ping(void*) {
     ZerOS::board::print("timer: fired (tick context, no task spent)\r\n");
 }
 
+// 'e' + 'f' are a two-key interlock: the waiter parks on an AND mask and
+// only comes home when BOTH bits are lit — level semantics, one bit each key
+constinit ZerOS::sync::Event g_keys{};
+constinit ZerOS::sched::TCBStorage tcb_evt{};
+alignas(8) constinit std::uint32_t stack_evt[96] = {}; // wait chain + format buffer
+                                                       // ate 6 canary words at 64 — caught live
+bool g_evt_spawned = false;
+
+void key_waiter(void*) {
+    auto got = g_keys.wait(0b0011, true, Milliseconds{5000});
+    if (got.has_value()) {
+        ZerOS::board::format("evt: both keys in (bits=0x{})\r\n", ZerOS::log::Hex{*got});
+    } else {
+        ZerOS::board::print("evt: nobody pressed the second key\r\n");
+    }
+    ThisTask::block(); // self-retire
+}
+
+// 'n' is a three-piece relay: a task parks on its mailbox, a timer fires in
+// the tick context, and the timer's callback DROPS THE LETTER straight into
+// the task — no semaphore, no queue, one uint32 straight to the owner
+constinit ZerOS::sched::TCBStorage tcb_nt{};
+alignas(8) constinit std::uint32_t stack_nt[96] = {};
+ZerOS::sched::TCB* g_nt = nullptr;
+
+void mail_filler(void*) { // runs in TICK context — notify is safe there
+    ZerOS::system::os().notify(g_nt, 42);
+}
+
+void mailbox_task(void*) {
+    auto letter = ThisTask::wait_notify(Milliseconds{1000});
+    if (letter.has_value()) {
+        ZerOS::board::format("nt: letter says {}\r\n", ZerOS::log::Dec{*letter});
+    } else {
+        ZerOS::board::print("nt: mailbox stayed empty\r\n");
+    }
+    ThisTask::block(); // self-retire
+}
+
 // 'r' spawns two NEVER-SLEEPING spinners on the SAME level for ~3 seconds.
 // Without time slicing one of them would starve the other; the slice forces
 // them to take turns — the interleaved output IS the feature.
@@ -190,6 +229,31 @@ void task_c(void*) {
                 spawn(r2);
                 ZerOS::board::print("c: spinner pair out, 3s of fairness\r\n");
             }
+        } else if (c == 'e') {
+            if (!g_evt_spawned) {
+                g_evt_spawned = true;
+                auto& t = ZerOS::task::named("evt")
+                              .prio(3)
+                              .stack(stack_evt)
+                              .entry(key_waiter, nullptr)
+                              .spawn_into(tcb_evt);
+                spawn(t);
+                ZerOS::board::print("c: waiter out, needs BOTH keys (got bit0)\r\n");
+            }
+            g_keys.set(1u << 0);
+        } else if (c == 'f') {
+            g_keys.set(1u << 1);
+        } else if (c == 'n') {
+            if (g_nt == nullptr) {
+                g_nt = &ZerOS::task::named("nt")
+                            .prio(3)
+                            .stack(stack_nt)
+                            .entry(mailbox_task, nullptr)
+                            .spawn_into(tcb_nt);
+                spawn(*g_nt);
+                ZerOS::board::print("c: mailbox task out, timer writes in 300ms\r\n");
+            }
+            g_demo_timer.oneshot(Milliseconds{300}, mail_filler, nullptr);
         } else {
             ZerOS::board::print("got '");
             ZerOS::board::uart1_putc(c);

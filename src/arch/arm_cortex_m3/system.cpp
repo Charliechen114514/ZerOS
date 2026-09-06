@@ -68,6 +68,29 @@ void CortexM3System::cancel_timer(base::BorrowedPtr<clock::TimeWaiter> w) {
     system_time.cancel(w);
 }
 
+bool CortexM3System::notify(base::BorrowedPtr<sched::TCB> t, std::uint32_t value) {
+    return system_sched.notify(t, value);
+}
+
+std::expected<std::uint32_t, sync::SyncError>
+CortexM3System::wait_notify(clock::Ticks::tick_t span) {
+    // re-check loop in the face: probe the mailbox, sleep through THIS
+    // object's sleep_for (singletons stay private to the arm .cpp family)
+    const auto ddl = system_time.current().tick_ + span;
+    for (;;) {
+        if (auto letter = system_sched.wait_notify(); letter.has_value()) {
+            return letter;
+        }
+        const auto left =
+            static_cast<clock::Ticks::tick_diff_t>(ddl - system_time.current().tick_);
+        if (left <= 0) {
+            return std::unexpected(sync::SyncError::TimedOut);
+        }
+        system_sched.sleep_for(system_sched.current_task(), system_time,
+                               static_cast<clock::Ticks::tick_t>(left), wake_from_sleep);
+    }
+}
+
 void CortexM3System::lock() {
     guard_.lock();
 }
