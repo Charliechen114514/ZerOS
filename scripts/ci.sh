@@ -25,8 +25,9 @@ banner() { echo; echo "====[ $1 ]===="; }
 # ---------------------------------------------------------------- host ----
 check_host() {
     banner "1/4 host unit tests"
-    cmake -B "$HOST_DIR" -DZEROS_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Debug >/dev/null
-    cmake --build "$HOST_DIR" -j"$NCPU" 2>&1 | grep -E 'error|warning' && fail "host build" || true
+    # logs are printed unconditionally — success or failure, full output
+    cmake -B "$HOST_DIR" -DZEROS_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Debug
+    cmake --build "$HOST_DIR" -j"$NCPU" || fail "host build"
     ctest --test-dir "$HOST_DIR" --output-on-failure
 }
 
@@ -51,8 +52,10 @@ check_hygiene() {
 # ----------------------------------------------------------------- size ----
 check_size() {
     banner "3/4 cross build + size limits (flash ${FLASH_LIMIT}B / ram ${RAM_LIMIT}B)"
-    cmake -B "$ARM_DIR" -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN" >/dev/null
-    cmake --build "$ARM_DIR" -j"$NCPU" 2>&1 | grep -E 'error|warning' && fail "cross build" || true
+    # logs are printed unconditionally — a grep filter here once ate the
+    # actual error lines and treated mere warnings as the failure itself
+    cmake -B "$ARM_DIR" -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN"
+    cmake --build "$ARM_DIR" -j"$NCPU" || fail "cross build"
 
     shopt -s nullglob
     elves=(build/src/board/stm32f103_bluepill/example/*/zeros-demo-*.elf)
@@ -105,8 +108,7 @@ check_smoke() {
                 -e "logFile @${tmpdir}/${demo}.log" \
                 -e "\$bin=@${elf}" \
                 -e "include @${resc}" \
-                -e "start" -e "sleep 5" -e "quit" \
-                > /dev/null 2>&1
+                -e "start" -e "sleep 5" -e "quit"
         )
     done
 

@@ -6,4 +6,5 @@ target_include_directories(zeros_common PUBLIC ${CMAKE_SOURCE_DIR}/include)
 
 if(NOT ZEROS_BUILD_TESTS) # boards only exist for the cross build
     add_subdirectory(board/stm32f103_bluepill)
+    add_subdirectory(board/mps2_an385)
 endif()
