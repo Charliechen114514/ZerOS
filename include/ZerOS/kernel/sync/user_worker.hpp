@@ -14,6 +14,7 @@
 #pragma once
 #include "ZerOS/base/callback.hpp"
 #include "ZerOS/base/check.hpp"
+#include "ZerOS/kernel/sched/stack.hpp"
 #include "ZerOS/kernel/sched/task.hpp"
 #include "ZerOS/kernel/sched/task_control_block.hpp"
 #include "ZerOS/kernel/sync/msg_queue.hpp"
@@ -27,7 +28,10 @@ namespace ZerOS::sync {
  */
 using Work = base::Callback;
 
-template <ZerOS::system::SystemContext System, std::size_t Depth = 8, std::size_t StackWords = 64>
+// StackWords=128 by default: log::print alone parks a 160-byte line buffer
+// on the worker's stack (64 words measured too thin — the canary caught it)
+template <ZerOS::system::SystemContext System, std::size_t Depth = 8,
+          std::size_t StackWords = 128>
 struct WorkBase {
     // defer
     bool defer(base::Callback::Fn func, void* arg) noexcept {
@@ -56,7 +60,7 @@ struct WorkBase {
     QueueBase<System, Work, Depth> queue_{};
     sched::TCBStorage box_{};
     // Local stack storage
-    alignas(8) std::uint32_t stack_[StackWords]{};
+    task::TaskStack<StackWords> stack_{}; // alignment lives in the type
 };
 
 } // namespace ZerOS::sync

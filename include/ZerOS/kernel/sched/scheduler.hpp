@@ -7,6 +7,7 @@
 #include "ZerOS/kernel/clock/kernel.hpp"
 #include "ZerOS/kernel/irq/critical_section.hpp"
 #include "ZerOS/kernel/sched/is_scheduler.hpp"
+#include "ZerOS/kernel/sched/stack.hpp"
 #include "ZerOS/kernel/sched/stack_guard.hpp"
 #include "ZerOS/kernel/sched/task_control_block.hpp"
 #include "ZerOS/kernel/sched/types.hpp"
@@ -23,6 +24,8 @@ template <typename Driver> struct Scheduler {
     constexpr Scheduler() {
         idle_.task_priority_ = kIdlePrio;
         idle_.name_ = "idle";
+        idle_.stack_view_ = idle_stack_; // the idle task is OURS: its stack
+                                         // comes with us, callers never know
     }
 
     void add(base::BorrowedPtr<TCB> t) {
@@ -205,6 +208,7 @@ template <typename Driver> struct Scheduler {
     }
 
     TCB idle_{};
+    task::TaskStack<32> idle_stack_{}; // 128B, the D12 budget line
     TCB* current_{nullptr};
     base::Bitmap<kPriorityLevels> present_{};
     base::SelfList<TCB> fifo_[kPriorityLevels]{};

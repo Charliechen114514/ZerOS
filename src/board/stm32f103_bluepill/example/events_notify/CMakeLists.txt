@@ -1,0 +1,1 @@
+zeros_add_demo(events_notify)

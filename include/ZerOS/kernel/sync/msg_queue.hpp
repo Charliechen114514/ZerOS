@@ -23,8 +23,8 @@ struct QueueBase {
         semaphore.acquire();
         return pop_ring();
     }
-    // when 0, means try receive
-    static constexpr auto TRY_RECEIVE_TIME = clock::Milliseconds{0};
+    // zero time = a single non-blocking try (serves BOTH receive and post)
+    static constexpr clock::Milliseconds kZeroWait{0};
     std::expected<Message, QueueError> receive_one(clock::Milliseconds timeout) noexcept {
         if (semaphore.try_acquire(timeout) != SyncError::Ok) {
             return std::unexpected(QueueError::Timeout);
@@ -32,7 +32,7 @@ struct QueueBase {
         return pop_ring();
     }
     // Post one message without ever sleeping — the ONLY post an ISR may call
-    QueueError post(const Message& m) noexcept { return post_for(m, TRY_RECEIVE_TIME); }
+    QueueError post(const Message& m) noexcept { return post_for(m, kZeroWait); }
 
     // Task-side post with back-pressure: on a full ring, SLEEP until a slot
     // frees or the time runs out. Never call this from an interrupt.

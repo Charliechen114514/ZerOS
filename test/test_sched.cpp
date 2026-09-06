@@ -4,6 +4,7 @@
 #include <span>
 
 #include "ZerOS/kernel/clock/kernel.hpp"
+#include "ZerOS/kernel/sched/arena.hpp"
 #include "ZerOS/kernel/sched/scheduler.hpp"
 #include "ZerOS/kernel/sched/task.hpp"
 
@@ -323,4 +324,30 @@ TEST_CASE("time slice: a fresh pick starts a fresh slice", "[sched][slice]") {
     s.on_tick(); // ...the 10th does
     CHECK(g_switch_requests == 1);
     REQUIRE(s.pick_next().get() == &a.tcb); // and the ring turns to a
+}
+TEST_CASE("startup arena: aligned slices, dry block refuses, no wraparound", "[sched][arena]") {
+    alignas(8) std::byte block[24]{};
+    ZerOS::task::Arena arena{block, sizeof(block)};
+
+    auto* first = arena.take(8, 8);   // 8 bytes at offset 0
+    auto* second = arena.take(8, 8);  // 8 bytes at offset 8
+    REQUIRE(first != nullptr);
+    REQUIRE(second != nullptr);
+    CHECK(first != second);
+
+    CHECK(arena.take(16, 8) == nullptr); // only 8 left — refuses
+    CHECK(arena.take(8, 8) != nullptr);  // exactly 8 — fits
+    CHECK(arena.take(1, 1) == nullptr);  // bone dry
+
+    // alignment pads the START, not the size: take(1,8) moves 1 byte,
+    // the next aligned take pays the padding
+    alignas(8) std::byte room[9]{};
+    ZerOS::task::Arena odd{room, sizeof(room)};
+    auto* p1 = odd.take(1, 8); // at offset 0: aligned already, consumes 1
+    REQUIRE(p1 != nullptr);
+    CHECK(odd.left() == 8);
+    CHECK(odd.take(8, 8) == nullptr); // offset 1: needs 7 pad + 8 > 8 left
+    auto* p2 = odd.take(1, 1);        // unaligned ask, 1 byte is fine
+    REQUIRE(p2 != nullptr);
+    CHECK(odd.left() == 7);
 }

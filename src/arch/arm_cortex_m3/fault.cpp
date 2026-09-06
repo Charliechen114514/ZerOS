@@ -53,9 +53,10 @@ extern "C" void hardfault_capture(std::uint32_t* frame,
         .frame = frame,
     };
 
-    if (ZerOS::arch::cortex_m3::fault_sink != nullptr) {
-        ZerOS::arch::cortex_m3::fault_sink(r);
-    }
+    // dying with no testament is not allowed either — wire one, or install
+    // the defaults; silence on a hard fault is a bug, not a mode
+    ZerOS::debug::Check(ZerOS::arch::cortex_m3::fault_sink != nullptr, "fault sink not wired");
+    ZerOS::arch::cortex_m3::fault_sink(r);
     for (;;) { // testament delivered; lie down
         asm volatile("wfi");
     }

@@ -43,8 +43,10 @@ extern "C" std::uint32_t* context_switch(std::uint32_t* saved_sp) {
     if (saved_sp != nullptr) {
         auto prev = system_sched.current_task();
         TCBKeys::sp(*prev) = saved_sp;
-        if (TaskGuardHelper::fast_check_stack(*prev) &&
-            TaskGuardHelper::overflow_reporter != nullptr) {
+        if (TaskGuardHelper::fast_check_stack(*prev)) {
+            // an eaten canary with nobody listening must NOT pass in silence
+            ZerOS::debug::Check(TaskGuardHelper::overflow_reporter != nullptr,
+                                "overflow reporter not wired");
             TaskGuardHelper::overflow_reporter(prev, TaskGuardHelper::eaten_length(*prev));
         }
     }
@@ -82,7 +84,13 @@ void spawn(ZerOS::sched::TCB& t) {
     system_sched.add(&t);
 }
 
-void start_scheduler(std::span<std::uint32_t> idle_stack) {
+sched::TCB& spawn(sched::TCBCreator spec, sched::TCBStorage& box) {
+    auto& t = spec.spawn_into(box);
+    spawn(t);
+    return t;
+}
+
+void start_scheduler() {
     auto idle = system_sched.fetch_idle_task();
     TCBKeys::wrapper(*idle) = {+[](void*) {
                                    for (;;) {
@@ -90,7 +98,7 @@ void start_scheduler(std::span<std::uint32_t> idle_stack) {
                                    }
                                },
                                nullptr};
-    TCBKeys::stack_view(*idle) = idle_stack;
+    // the idle stack was wired by the Scheduler itself — nothing to feed
     task::TaskGuardHelper::bury_canary(*idle);
     fabricate_frame(*idle);
 
