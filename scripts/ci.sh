@@ -83,29 +83,38 @@ check_smoke() {
         [round_robin]="rr2 alive"
     )
 
-    # all demos are independent simulations — run them in parallel
+    # pre-build all targets sequentially — concurrent make on the same
+    # build dir races for the lock and can skip an ELF entirely
+    for demo in "${!MARK[@]}"; do
+        cmake --build "$ARM_DIR" --target "zeros-demo-$demo" -j"$NCPU" \
+            || fail "pre-build $demo: ELF not produced"
+    done
+
+    # now simulate all in parallel — each Renode instance is independent
     local tmpdir
     tmpdir=$(mktemp -d)
     local pids=()
     for demo in "${!MARK[@]}"; do
         echo "--- run-$demo (expect: ${MARK[$demo]})"
         (
-            out=$(cmake --build "$ARM_DIR" --target "run-$demo" -j"$NCPU" 2>&1 \
-                  | sed 's/\x1b\[[0-9;]*m//g')
-            echo "$out" > "$tmpdir/$demo.log"
+            cmake --build "$ARM_DIR" --target "run-$demo" 2>&1 \
+                | sed 's/\x1b\[[0-9;]*m//g' > "$tmpdir/$demo.log"
         ) &
         pids+=($!)
     done
 
-    local failed=0
     for i in "${!pids[@]}"; do
         wait "${pids[$i]}" || true
     done
 
+    local failed=0
     for demo in "${!MARK[@]}"; do
         if ! grep -q "${MARK[$demo]}" "$tmpdir/$demo.log" 2>/dev/null; then
-            echo "--- $demo FAILED (expected: ${MARK[$demo]})" >&2
-            tail -5 "$tmpdir/$demo.log" 2>/dev/null >&2
+            echo >&2
+            echo "========== $demo FAILED (expected: '${MARK[$demo]}') ==========" >&2
+            echo "--- last 30 lines of output ---" >&2
+            tail -30 "$tmpdir/$demo.log" 2>/dev/null >&2
+            echo "=================================================" >&2
             failed=1
         fi
     done
