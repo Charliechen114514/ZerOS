@@ -83,22 +83,29 @@ check_smoke() {
         [round_robin]="rr2 alive"
     )
 
-    # pre-build all targets sequentially — concurrent make on the same
-    # build dir races for the lock and can skip an ELF entirely
+    # pre-build all ELF targets (sequential, no lock contention)
     for demo in "${!MARK[@]}"; do
         cmake --build "$ARM_DIR" --target "zeros-demo-$demo" -j"$NCPU" \
             || fail "pre-build $demo: ELF not produced"
     done
 
-    # now simulate all in parallel — each Renode instance is independent
-    local tmpdir
+    # simulate all in parallel — call renode directly (no cmake, no locks)
+    local tmpdir root resc
     tmpdir=$(mktemp -d)
+    root="$(pwd)"
+    resc=src/board/stm32f103_bluepill/sim/renode/bluepill.resc
     local pids=()
     for demo in "${!MARK[@]}"; do
+        local elf="$ARM_DIR/src/board/stm32f103_bluepill/example/$demo/zeros-demo-$demo.elf"
+        [ -f "$elf" ] || fail "ELF missing: $elf"
         echo "--- run-$demo (expect: ${MARK[$demo]})"
         (
-            cmake --build "$ARM_DIR" --target "run-$demo" 2>&1 \
-                | sed 's/\x1b\[[0-9;]*m//g' > "$tmpdir/$demo.log"
+            cd "$root" && renode --console --disable-xwt \
+                -e "logFile @${tmpdir}/${demo}.log" \
+                -e "\$bin=@${elf}" \
+                -e "include @${resc}" \
+                -e "start" -e "sleep 5" -e "quit" \
+                > /dev/null 2>&1
         ) &
         pids+=($!)
     done
@@ -109,11 +116,11 @@ check_smoke() {
 
     local failed=0
     for demo in "${!MARK[@]}"; do
-        if ! grep -q "${MARK[$demo]}" "$tmpdir/$demo.log" 2>/dev/null; then
+        if ! grep -q "${MARK[$demo]}" "${tmpdir}/${demo}.log" 2>/dev/null; then
             echo >&2
             echo "========== $demo FAILED (expected: '${MARK[$demo]}') ==========" >&2
-            echo "--- last 30 lines of output ---" >&2
-            tail -30 "$tmpdir/$demo.log" 2>/dev/null >&2
+            echo "--- last 30 lines of renode log ---" >&2
+            tail -30 "${tmpdir}/${demo}.log" 2>/dev/null >&2
             echo "=================================================" >&2
             failed=1
         fi
