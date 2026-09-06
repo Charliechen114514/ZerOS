@@ -5,4 +5,5 @@ build*/
 
 # Ignores Log files
 *.log
-*.log.*
+*.log.*run.log*
+renode-*.log

@@ -1,0 +1,68 @@
+# ZerOS CI — runs ./scripts/ci.sh on a Linux runner, one step per check.
+#
+# Toolchain reality check (2026-09-06):
+#   xPack has NOT released GCC 16 yet (latest: arm 15.2.1, host 15.2.0).
+#   Local dev uses Arch GCC 16.1 — but no 16-specific features are used
+#   (D4 floor: GCC 14 for deducing this). CI runs on:
+#     host: ubuntu-24.04 apt g++-14 (zero download, always there)
+#     arm:  xPack arm-none-eabi-gcc 15.2.1 (pinned tarball)
+
+name: ci
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-24.04
+    env:
+      XPACK_ARM_GCC: https://github.com/xpack-dev-tools/arm-none-eabi-gcc-xpack/releases/download/v15.2.1-1.1/xpack-arm-none-eabi-gcc-15.2.1-1.1-linux-x64.tar.gz
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: sparse the submodule to CMSIS only + fetch the orphaned gitlink
+        run: |
+          cd third_party/STM32CubeF1
+          git sparse-checkout set --no-cone \
+            '/Drivers/CMSIS/Include/**' '/Drivers/CMSIS/Device/**' '/Drivers/CMSIS/LICENSE.txt'
+          git checkout
+          git clone --filter=blob:none --no-checkout \
+            https://github.com/STMicroelectronics/cmsis-device-f1.git \
+            Drivers/CMSIS/Device/ST/STM32F1xx
+          git -C Drivers/CMSIS/Device/ST/STM32F1xx fetch --depth 1 origin master
+          git -C Drivers/CMSIS/Device/ST/STM32F1xx checkout c8e9a4a4
+
+      - name: host g++-14 (apt, no tarball)
+        run: sudo apt-get update && sudo apt-get install -y g++-14
+
+      - name: arm-none-eabi-gcc 15.2.1 (xPack, pinned)
+        run: |
+          mkdir -p /opt/xpack
+          curl -sSL "$XPACK_ARM_GCC" | tar xz -C /opt/xpack
+          echo "/opt/xpack/xpack-arm-none-eabi-gcc-15.2.1-1.1/bin" >> "$GITHUB_PATH"
+
+      - name: renode 1.16.1 (GitHub portable, pinned — matches local)
+        run: |
+          mkdir -p /opt/renode
+          curl -sSL https://github.com/renode/renode/releases/download/v1.16.1/renode-1.16.1.linux-portable.tar.gz \
+            | tar xz --strip-components=1 -C /opt/renode
+          echo /opt/renode >> "$GITHUB_PATH"
+
+      # -- one step per check: Actions UI folds each into its own section --
+
+      - name: host unit tests
+        env:
+          CXX: g++-14
+        run: ./scripts/ci.sh host
+
+      - name: include hygiene
+        run: ./scripts/ci.sh hygiene
+
+      - name: cross build + size limits
+        run: ./scripts/ci.sh size
+
+      - name: renode behavior check
+        run: ./scripts/ci.sh smoke

@@ -32,9 +32,8 @@ function(zeros_add_demo name)
         ${CMAKE_SOURCE_DIR}/src
         ${CMAKE_CURRENT_SOURCE_DIR}/../..    # board root: uart.hpp, link.ld
         ${CMAKE_CURRENT_SOURCE_DIR}/..       # example/: demo_setup.hpp
-        ${CMSIS}/Include
-        ${CMSIS}/Core/Include
-        ${CMSIS}/Device/ST/STM32F1xx/Include
+        ${CMAKE_SOURCE_DIR}/third_party/STM32CubeF1/Drivers/CMSIS/Include
+        ${CMAKE_SOURCE_DIR}/third_party/STM32CubeF1/Drivers/CMSIS/Device/ST/STM32F1xx/Include
     )
     target_compile_definitions(zeros-demo-${name} PRIVATE STM32F103xB)
     target_link_options(

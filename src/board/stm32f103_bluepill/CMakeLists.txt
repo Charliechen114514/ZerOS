@@ -3,6 +3,7 @@
 
 set(CMAKE_EXECUTABLE_SUFFIX .elf)
 
+# CMSIS headers from the submodule (sparse: only Include + Device, ~1.5MB)
 set(CMSIS ${CMAKE_SOURCE_DIR}/third_party/STM32CubeF1/Drivers/CMSIS)
 
 # ---- 示例注册中心:一个场景一个子目录,一行注册 ----
