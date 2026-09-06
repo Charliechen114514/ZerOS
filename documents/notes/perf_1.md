@@ -144,6 +144,45 @@ D12 verdict: see [1] avg — that's the number users feel
 
 ---
 
+## 第六轮:NO_TICK + PendSV 探针(终审)
+
+两个 CMake 开关各管一件事:`ZEROS_MEASURE_PENDSV` 在 PendSV 汇编里插无分支 DWT 快照(~24 cycles 固定探针开销,骑在被测路径上,build-gated);`ZEROS_PERF_NO_TICK` 完全不启动 SysTick——reporter 改由 pong 收工后 notify 唤醒,整条链路不依赖时间,测量窗里没有 tick 上下文会撞进来。
+
+这一轮顺带抓了两个真 bug,都是 NO_TICK 路径才暴露的:
+
+1. **任务退场死锁**。任务函数返回后跳进 Trap,原实现是 wfi 死等。有 tick 的系统里僵尸任务靠时间片轮转被强行切走,一直没人觉得不对;NO_TICK 下没有中断可依,僵尸占着 CPU,全场死寂。Renode 复现,挂死后 PC 直接落在 Trap 的 wfi 循环里。修复:Trap 改成 block 自己——退场就是让出,无人可跑时 idle 的 wfi 才是正确终态。
+2. **wait_notify 大跨度回绕**。`wait_notify(Milliseconds{0xFFFFFFFF})` 的 deadline = now + span 无符号回绕成"过去",落在"严格在未来"判定之外,立即超时返回——想要"近似 forever",实际"立刻醒"。改用 10 分钟这样的有限跨度规避。这是时间契约(待决 6)的活案例,内核侧要不要加饱和/断言待裁。
+
+测量数据(NO_TICK + probe,真机):
+
+```text
+=== ZerOS Performance @ 72MHz ===
+rounds: 1000
+tick: OFF (no SysTick)
+
+[1] yield full path (external DWT):
+    min: 375 cycles (~5us)
+    avg: 375 cycles (~5us)
+    max: 385 cycles (~5us)
+    outliers(>avg+128): 0 of 1000
+
+[2] PendSV handler (probe, 24 cycles subtracted):
+    net min: 93 cycles (~1us)
+    net avg: 93 cycles (~1us)  budget: 72 = 1us
+    net max: 93 cycles (~1us)
+    raw avg: 117 cycles
+
+[3] accounting: yield[1] - handler[2] = 282 cycles
+    (API + queue + pend + exception entry/exit + waker prologue)
+```
+
+读数:
+
+- **max 从 532 收敛到 385,离群从 5 变 0**:SysTick 干扰归因终审成立——有 tick 版的 max 尾巴就是 tick 上下文(timer 链 + 时间片判定)撞进测量窗。
+- 375(含 24 探针)− 24 ≈ 351 ≈ 336 + 布局抖动,与有 tick 版交叉自洽。
+- **PendSV 本体 93 cycles,零方差**(min = avg = max)。零方差本身就是证词:稳态切换是完全确定的路径,测量方法可信。raw 117 − 24 = 93。
+- **拆账:yield 375 = handler 93 + 282**。75% 的开销在异常进出、API 调用、排队、pend、唤醒者前言——**优化 yield 的杠杆不在 handler 里**,handler 只占四分之一。
+
 ## 完整测试矩阵
 
 | 代码位置 | 链表 | yield avg | 相对基线 |
@@ -165,9 +204,10 @@ D12 verdict: see [1] avg — that's the number users feel
 
 | 指标 | 结果 | 说明 |
 |---|---|---|
-| yield 全程 avg | **333 cycles (4.63µs)** | 最终配置(Flash + O(1) 队列),包含 API 调用、排队、中断进出、任务恢复的所有开销 |
-| yield 全程 max | 529 cycles (7.35µs) | 存在延迟样本,可能来自 SysTick 干扰(未验证) |
-| PendSV 单独耗时 | **未独立测量** | 不能从 yield 减去估算值得到 |
+| yield 全程 avg | **336 cycles (4.67µs)** | 有 tick,无探针;含 API 调用、排队、中断进出、任务恢复的所有开销(第五轮 333 同波动区) |
+| yield 全程 max | 532 cycles (7.39µs) | 尾巴=SysTick 干扰:离群 5/1000,与 5ms 窗@1kHz≈5 次碰撞吻合;NO_TICK 复测收敛 385/离群 0,归因终审 |
+| PendSV 本体 | **93 cycles (1.29µs),零方差** | 探针实测(net),min=avg=max;不再用减法估算 |
+| BASEPRI 最长窗口 | 待复测 | 第一轮数含 ~80 cycles 测量污染 |
 
 ### D12 判定
 
@@ -198,6 +238,11 @@ D12 要求"上下文切换 ≤1µs @72MHz"。
 
 ### 后续方向
 
-1. 独立测量 PendSV-only 耗时(在 PendSV 入口/出口加 DWT,不受 yield 干扰)
-2. 关闭 SysTick 再跑一组,分离中断干扰
-3. 根据真实任务的切换频率和中断延迟预算,决定是否继续优化
+1. ~~独立测量 PendSV-only 耗时~~ —— 第六轮完成:93 cycles 零方差(探针实测)
+2. ~~关闭 SysTick 再跑一组,分离中断干扰~~ —— 第六轮完成:离群 5/1000 → 0,归因成立
+3. **D12 口径裁定**(待定):按 PendSV 本体口径 93 > 72 超预算 29%,维持预算记 FAIL 还是按本体口径修订(如 ≤110 cycles)。93 的构成非常物理:8 寄存器压/弹是 ABI 义务,异常进出是硬件行为。实用性:1kHz tick 下一次切换占周期 0.46%
+4. BASEPRI 最长窗口复测(探针 patch 复用即可)
+
+### 测量设施的去留
+
+probe 是 build-gated 的,生产构建零开销,但热路径里出现测量钩子终究碍眼。处置:**主线代码剥干净,探针以 patch 随库**(`scripts/patches/pendsv-probe.patch`)——要测量的机器先 `git apply` 再开 `ZEROS_MEASURE_PENDSV`;忘了 apply 就开开关 = 链接错误,响亮失败。数据已全部入档,patch 的使命是下次复测即贴即用。

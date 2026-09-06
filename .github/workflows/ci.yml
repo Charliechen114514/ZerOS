@@ -44,7 +44,7 @@ jobs:
           curl -sSL "$XPACK_ARM_GCC" | tar xz -C /opt/xpack
           echo "/opt/xpack/xpack-arm-none-eabi-gcc-15.2.1-1.1/bin" >> "$GITHUB_PATH"
 
-      - name: renode 1.16.1 (GitHub portable, pinned — matches local)
+      - name: renode 1.16.1 (GitHub portable, pinned)
         run: |
           mkdir -p /opt/renode
           curl -sSL https://github.com/renode/renode/releases/download/v1.16.1/renode-1.16.1.linux-portable.tar.gz \

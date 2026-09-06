@@ -14,13 +14,18 @@
 
 namespace ZerOS::demo {
 
-inline void setup(const char* name) {
+// with_tick=false skips init_time entirely: no SysTick, nothing ticks.
+// Only callers that depend on no time service may do this (the perf demo
+// uses it to measure with tick interference switched off).
+inline void setup(const char* name, bool with_tick = true) {
     board::clock_init();  // HSI 8MHz → PLL 72MHz — real silicon needs this
     board::uart1_init();  // after clock_init: BRR assumes 72MHz
     board::register_uart_channel(); // this board talks over UART1
     log::print("\r\nZerOS demo: {}\r\n", name);
     arch::cortex_m3::install_default_testaments(); // obligations, explicitly
-    arch::cortex_m3::init_time(72'000'000 / 1000); // 1kHz tick
+    if (with_tick) {
+        arch::cortex_m3::init_time(72'000'000 / 1000); // 1kHz tick
+    }
 }
 
 } // namespace ZerOS::demo

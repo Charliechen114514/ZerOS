@@ -1,0 +1,101 @@
+# PendSV-only probe (documents/notes/perf_1.md, round 6)
+#
+# The mainline keeps the switch hot path measurement-clean; this patch adds
+# two branch-free DWT snapshots around the PendSV handler body (~24 cycles
+# of fixed probe overhead riding the measured path — subtract it when
+# reading, the perf demo already does).
+#
+# Usage:
+#   git apply scripts/patches/pendsv-probe.patch
+#   cmake -B build-meas -DCMAKE_TOOLCHAIN_FILE=cmake/arch/arm-none-eabi.cmake \
+#         -DZEROS_MEASURE_PENDSV=ON [-DZEROS_PERF_NO_TICK=ON]
+#   ... measure ... then:  git apply -R scripts/patches/pendsv-probe.patch
+#   (reverse-apply to undo — NOT git checkout, which would also wipe any
+#    uncommitted work beside the patch)
+#
+# Turning ZEROS_MEASURE_PENDSV on WITHOUT applying this patch fails to
+# build (the demo references the stamps, nothing defines them) —
+# loudly, on purpose.
+--- a/src/arch/arm_cortex_m3/switch.cpp
++++ b/src/arch/arm_cortex_m3/switch.cpp
+@@ -36,12 +36,6 @@
+     TCBKeys::sp(t) = reinterpret_cast<std::uint32_t*>(sw);
+ }
+ 
+-// PendSV-only probe lives in scripts/patches/pendsv-probe.patch: the hot
+-// path stays measurement-clean on the mainline, applying the patch adds
+-// two branch-free DWT snapshots (~24 cycles, see documents/notes/perf_1.md
+-// round 6). Building the perf demo with ZEROS_MEASURE_PENDSV without the
+-// patch applied fails to build — loudly, on purpose.
+-
+ constinit SystemScheduler system_sched{};
+ 
+ // A returned task must LEAVE the cpu, not squat on it: a plain wfi here
+@@ -69,6 +63,32 @@
+ #    define ZEROS_RAMFUNC
+ #endif
+ 
++// PendSV-only probe (documents/notes/perf_1.md): two branch-free DWT
++// snapshots around the handler body; the perf demo does the post-analysis
++// on the raw delta. The probe costs ~24 cycles ON the measured path — a
++// fixed, documented addition, which is why it is build-gated: production
++// firmware pays nothing.
++extern "C" {
++volatile std::uint32_t zeros_pendsv_enter = 0;
++volatile std::uint32_t zeros_pendsv_exit = 0;
++}
++
++#ifdef ZEROS_MEASURE_PENDSV
++#    define ZEROS_PENDSV_PROBE_IN           \
++        "ldr     r1, =0xE0001004\n"         \
++        "ldr     r1, [r1]\n"                \
++        "ldr     r2, =zeros_pendsv_enter\n" \
++        "str     r1, [r2]\n"
++#    define ZEROS_PENDSV_PROBE_OUT         \
++        "ldr     r1, =0xE0001004\n"        \
++        "ldr     r1, [r1]\n"               \
++        "ldr     r2, =zeros_pendsv_exit\n" \
++        "str     r1, [r2]\n"
++#else
++#    define ZEROS_PENDSV_PROBE_IN ""
++#    define ZEROS_PENDSV_PROBE_OUT ""
++#endif
++
+ extern "C" ZEROS_RAMFUNC std::uint32_t* context_switch(std::uint32_t* saved_sp) {
+     using TaskGuardHelper = task::TaskGuardHelper;
+     if (saved_sp != nullptr) {
+@@ -96,13 +116,11 @@
+ }
+ 
+ extern "C" ZEROS_RAMFUNC [[gnu::naked]] void PendSV_Handler() {
+-    asm volatile("cpsid   i\n"
+-                 "mrs     r0, psp\n"
++    asm volatile("cpsid   i\n" ZEROS_PENDSV_PROBE_IN "mrs     r0, psp\n"
+                  "cbz     r0, 1f\n"
+                  "stmdb   r0!, {r4-r11}\n"
+                  "1:\n"
+-                 "bl      context_switch\n"
+-                 "ldmia   r0!, {r4-r11}\n"
++                 "bl      context_switch\n" ZEROS_PENDSV_PROBE_OUT "ldmia   r0!, {r4-r11}\n"
+                  "msr     psp, r0\n"
+                  "ldr     lr, =0xFFFFFFFD\n"
+                  "cpsie   i\n"
+--- a/include/ZerOS/arch/arm_cortex_m3/switch.hpp
++++ b/include/ZerOS/arch/arm_cortex_m3/switch.hpp
+@@ -27,4 +27,13 @@
+ ZerOS::sched::TCB& spawn(ZerOS::sched::TCBCreator spec,
+                          ZerOS::sched::TCBStorage& box);
+ [[noreturn]] void start_scheduler(); // idle 栈内核自带
+-} // namespace ZerOS::arch::cortex_m3
+\ No newline at end of file
++} // namespace ZerOS::arch::cortex_m3
++
++// PendSV-only probe stamps (perf measurement, documents/notes/perf_1.md):
++// stamped by the naked asm in switch.cpp, but only when the build sets
++// ZEROS_MEASURE_PENDSV — otherwise they just sit at zero. extern "C"
++// because the assembly refers to them by their plain symbol names.
++extern "C" {
++extern volatile std::uint32_t zeros_pendsv_enter;
++extern volatile std::uint32_t zeros_pendsv_exit;
++}
+\ No newline at end of file
