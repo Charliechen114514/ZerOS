@@ -38,7 +38,11 @@ void fabricate_frame(ZerOS::sched::TCB& t) {
 
 constinit SystemScheduler system_sched{};
 
-extern "C" std::uint32_t* context_switch(std::uint32_t* saved_sp) {
+// RAM-RESIDENT: the hot switch path runs with zero flash wait states
+// (72MHz + 2WS means every flash fetch is 3 cycles; RAM is 1 cycle)
+#define ZEROS_RAMFUNC __attribute__((section(".ramfunc"), noinline))
+
+extern "C" ZEROS_RAMFUNC std::uint32_t* context_switch(std::uint32_t* saved_sp) {
     using TaskGuardHelper = task::TaskGuardHelper;
     if (saved_sp != nullptr) {
         auto prev = system_sched.current_task();
@@ -50,10 +54,10 @@ extern "C" std::uint32_t* context_switch(std::uint32_t* saved_sp) {
             TaskGuardHelper::overflow_reporter(prev, TaskGuardHelper::eaten_length(*prev));
         }
     }
-    return TCBKeys::sp(*system_sched.pick_next());
+    return TCBKeys::sp(*system_sched.pick_next_locked());
 }
 
-extern "C" [[gnu::naked]] void SVC_Handler() {
+extern "C" ZEROS_RAMFUNC [[gnu::naked]] void SVC_Handler() {
     asm volatile("cpsid   i\n"
                  "movs    r0, #0\n" // first switch ever: nobody is running, nobody to save
                  "bl      context_switch\n"
@@ -64,7 +68,7 @@ extern "C" [[gnu::naked]] void SVC_Handler() {
                  "bx      lr\n");
 }
 
-extern "C" [[gnu::naked]] void PendSV_Handler() {
+extern "C" ZEROS_RAMFUNC [[gnu::naked]] void PendSV_Handler() {
     asm volatile("cpsid   i\n"
                  "mrs     r0, psp\n"
                  "cbz     r0, 1f\n"

@@ -43,6 +43,15 @@ template <typename Driver> struct Scheduler {
 
     [[nodiscard]] base::BorrowedPtr<TCB> pick_next() {
         irq::CriticalGuard guard{driver_};
+        return pick_next_locked();
+    }
+
+    // Same as pick_next, but the caller PROMISES interrupts are already
+    // masked (PendSV context: cpsid i in the naked asm does it). Skipping
+    // the redundant BASEPRI round-trip saves ~15 cycles per switch.
+    // always_inline so it folds into the caller's section (.ramfunc when
+    // called from the RAM-resident context_switch — zero flash wait states)
+    [[gnu::always_inline]] [[nodiscard]] base::BorrowedPtr<TCB> pick_next_locked() {
         if (current_ != nullptr && current_ != &idle_ && current_->state_ == TaskState::Running) {
             push_front(current_);
         }
@@ -177,16 +186,16 @@ template <typename Driver> struct Scheduler {
 
     DISABLE_COPY_MOVE(Scheduler);
 
-    void push_back(TCB* t) {
+    [[gnu::always_inline]] void push_back(TCB* t) {
         if (t->task_priority_ >= kMaxPrio) {
             return;
         }
         t->state_ = TaskState::Ready;
-        fifo_[t->task_priority_].insert(t);
+        fifo_[t->task_priority_].push_back(t); // O(1): tail pointer, no walk
         present_.set(t->task_priority_);
     }
 
-    void push_front(TCB* t) {
+    [[gnu::always_inline]] void push_front(TCB* t) {
         if (t->task_priority_ >= kMaxPrio) {
             return;
         }
@@ -195,7 +204,7 @@ template <typename Driver> struct Scheduler {
         present_.set(t->task_priority_);
     }
 
-    TCB* pop_highest() {
+    [[gnu::always_inline]] TCB* pop_highest() {
         const auto level = present_.find_first_set();
         if (level == decltype(present_)::npos) {
             return nullptr;

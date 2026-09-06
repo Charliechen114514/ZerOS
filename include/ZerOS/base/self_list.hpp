@@ -24,6 +24,7 @@ template <typename Stuff, typename Less = ZerOS::traits::AlwaysFalse> struct Sel
     SelfList& operator=(const SelfList&) = delete;
     [[nodiscard]] BorrowedPtr<Stuff> head() const { return stuff; }
 
+    // sorted insert (Less comparator) — walks to the right spot
     void insert(BorrowedPtr<Stuff> new_stuff) {
         Stuff** slot = &stuff; // Lets walk!
 
@@ -33,17 +34,36 @@ template <typename Stuff, typename Less = ZerOS::traits::AlwaysFalse> struct Sel
 
         new_stuff->next_ = *slot;
         *slot = new_stuff.get();
-
-        // OK, quit here
+        if (new_stuff->next_ == nullptr) {
+            tail_ = new_stuff.get(); // landed at the end
+        }
     }
+
+    // O(1) append — no walk, tail is right there. Use when order doesn't
+    // matter (round-robin queues); the sorted insert above is for deadlines.
+    void push_back(BorrowedPtr<Stuff> new_stuff) {
+        new_stuff->next_ = nullptr;
+        if (tail_ == nullptr) {
+            stuff = new_stuff.get(); // list was empty
+        } else {
+            tail_->next_ = new_stuff.get();
+        }
+        tail_ = new_stuff.get();
+    }
+
     bool remove(BorrowedPtr<Stuff> w) {
         Stuff** slot = &stuff;
+        Stuff* prev = nullptr;
         while (*slot != nullptr) {
             if (*slot == w) {
                 *slot = (*slot)->next_;
+                if (w.get() == tail_) {
+                    tail_ = prev; // removed the last node
+                }
                 w->next_ = nullptr;
                 return true;
             }
+            prev = *slot;
             slot = &(*slot)->next_;
         }
         return false;
@@ -52,12 +72,18 @@ template <typename Stuff, typename Less = ZerOS::traits::AlwaysFalse> struct Sel
     void push_front(BorrowedPtr<Stuff> new_stuff) {
         new_stuff->next_ = stuff;
         stuff = new_stuff.get();
+        if (tail_ == nullptr) {
+            tail_ = new_stuff.get(); // list was empty
+        }
     }
 
     [[nodiscard]] BorrowedPtr<Stuff> pop_head() {
         Stuff* out = stuff;
         if (out != nullptr) {
             stuff = out->next_;
+            if (stuff == nullptr) {
+                tail_ = nullptr; // drained
+            }
             out->next_ = nullptr;
         }
         return out;
@@ -66,6 +92,7 @@ template <typename Stuff, typename Less = ZerOS::traits::AlwaysFalse> struct Sel
 
   private:
     Stuff* stuff{nullptr};
+    Stuff* tail_{nullptr}; // last node — O(1) push_back, no more walking
     // if we dont set anything, place it null
     // so a self hold list is same as Stuff*
     [[no_unique_address]] Less less_{};
@@ -77,6 +104,6 @@ struct Probe : SelfNode<Probe> {};
 
 static_assert(SelfLinked<zeros_impl::Probe>);
 static_assert(std::is_trivially_destructible_v<SelfList<zeros_impl::Probe>>);
-static_assert(sizeof(SelfList<zeros_impl::Probe>) == sizeof(zeros_impl::Probe*),
-              "SelfList is not Zero cost");
+static_assert(sizeof(SelfList<zeros_impl::Probe>) == 2 * sizeof(zeros_impl::Probe*),
+              "SelfList = head + tail (tail buys O(1) push_back)");
 } // namespace ZerOS::base

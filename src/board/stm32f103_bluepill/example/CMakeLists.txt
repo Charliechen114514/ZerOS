@@ -63,9 +63,24 @@ function(zeros_add_demo name)
         DEPENDS zeros-demo-${name}
         USES_TERMINAL
     )
+
+    # flash to real silicon via ST-Link: cmake --build build --target flash-<name>
+    # (board must be plugged in; LED demos are the intended users)
+    add_custom_target(
+        flash-${name}
+        COMMAND openocd
+        -f interface/stlink.cfg
+        -f target/stm32f1x.cfg
+        -c "program $<TARGET_FILE:zeros-demo-${name}> verify reset exit"
+        DEPENDS zeros-demo-${name}
+        USES_TERMINAL
+        COMMENT "flashing demo-${name} to Blue Pill via ST-Link"
+    )
 endfunction()
 
 add_subdirectory(heartbeat)
+add_subdirectory(blink)
+add_subdirectory(perf)
 add_subdirectory(event_stream)
 add_subdirectory(inversion)
 add_subdirectory(bottom_half)

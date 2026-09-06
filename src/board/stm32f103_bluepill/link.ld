@@ -48,6 +48,14 @@ SECTIONS
         . = ALIGN(4);
         _sdata = .;
         *(.data*)
+
+        /* RAM 常驻热路径:上下文切换在这里跑,零 Flash 等待周期 */
+        . = ALIGN(4);
+        _sramfunc = .;
+        *(.ramfunc*)
+        . = ALIGN(4);
+        _eramfunc = .;
+
         . = ALIGN(4);
         _edata = .;
     } > RAM AT > FLASH

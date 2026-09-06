@@ -15,12 +15,21 @@ set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
 set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
 
 # 目标侧编译基线(D14:挂工具链文件而非根 CMakeLists,host 目标不受污染)
+# Debug 构建用 -Og(调试可读)替代 -Os(体积最小):
+#   cmake -B build-debug -DCMAKE_BUILD_TYPE=Debug ...
+# -Os 会重排基本块/内联/消除变量,GDB 断点打不中(「飞了」的根因)
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    set(ZEROS_OPT_LEVEL -Og)
+else()
+    set(ZEROS_OPT_LEVEL -Os)
+endif()
+
 add_compile_options(
     -mcpu=cortex-m3
     -mthumb
     -ffreestanding
-    -Os
-    -g
+    ${ZEROS_OPT_LEVEL}
+    -g3
     -ffunction-sections
     -fdata-sections
     $<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions>
