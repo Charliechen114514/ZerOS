@@ -6,6 +6,15 @@
 # simulation seconds for every run-<name> target
 set(ZEROS_SIM_SECONDS 5 CACHE STRING "仿真运行秒数")
 
+# dynamic tick (idle-time tick suppression, D15 arm contract cashed in):
+# OFF keeps the plain 1kHz periodic SysTick — bit-for-bit the old behavior
+option(ZEROS_TICKLESS "tickless idle: SysTick one-shot to next deadline" OFF)
+if(ZEROS_TICKLESS)
+    set(ZEROS_DEMO_TICKLESS_DEF ZEROS_TICKLESS)
+else()
+    set(ZEROS_DEMO_TICKLESS_DEF "")
+endif()
+
 # everything a demo links besides its own main.cpp: the arm bridge, the
 # board startup and the common formatter bodies
 set(ZEROS_DEMO_COMMON_SOURCES
@@ -35,7 +44,7 @@ function(zeros_add_demo name)
         ${CMAKE_SOURCE_DIR}/third_party/STM32CubeF1/Drivers/CMSIS/Include
         ${CMAKE_SOURCE_DIR}/third_party/STM32CubeF1/Drivers/CMSIS/Device/ST/STM32F1xx/Include
     )
-    target_compile_definitions(zeros-demo-${name} PRIVATE STM32F103xB)
+    target_compile_definitions(zeros-demo-${name} PRIVATE STM32F103xB ${ZEROS_DEMO_TICKLESS_DEF})
     target_link_options(
         zeros-demo-${name}
         PRIVATE -nostdlib
@@ -81,6 +90,7 @@ endfunction()
 add_subdirectory(heartbeat)
 add_subdirectory(blink)
 add_subdirectory(perf)
+add_subdirectory(watermark)
 add_subdirectory(event_stream)
 add_subdirectory(inversion)
 add_subdirectory(bottom_half)
@@ -88,3 +98,4 @@ add_subdirectory(timers)
 add_subdirectory(events_notify)
 add_subdirectory(testaments)
 add_subdirectory(round_robin)
+add_subdirectory(tickless)

@@ -47,6 +47,7 @@ zeros_add_test(test_notify)
 zeros_add_test(test_format)
 zeros_add_test(test_bitmap_pool)
 zeros_add_test(test_typeable)
+zeros_add_test(test_stack_watermark)
 
 # ---- negative compile test: the alignof guard in typeable.hpp ----
 # Make must reject over-aligned objects AT COMPILE TIME. We prove the

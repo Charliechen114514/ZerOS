@@ -84,6 +84,8 @@ check_smoke() {
         [events_notify]="both keys in"
         [testaments]="alive"
         [round_robin]="rr2 alive"
+        [watermark]="watermark: read"
+        [tickless]="tickless: witnessed"
     )
 
     # pre-build all ELF targets (sequential, no lock contention)

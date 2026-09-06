@@ -1,5 +1,6 @@
 #include "ZerOS/arch/arm_cortex_m3/switch.hpp"
 #include "ZerOS/arch/arm_cortex_m3/arch.hpp"
+#include "ZerOS/arch/arm_cortex_m3/time_kernel_cm3.hpp"
 #include "ZerOS/arch/arm_cortex_m3/trap.hpp"
 #include "ZerOS/kernel/sched/stack_guard.hpp"
 
@@ -125,7 +126,8 @@ void start_scheduler() {
     auto idle = system_sched.fetch_idle_task();
     TCBKeys::wrapper(*idle) = {+[](void*) {
                                    for (;;) {
-                                       asm volatile("wfi");
+                                       idle_sleep(); // the bed: plain wfi, or
+                                                     // tickless-armed when built so
                                    }
                                },
                                nullptr};

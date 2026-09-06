@@ -58,6 +58,21 @@ template <typename Driver> struct Kernel {
 
     Ticks current() const { return clock_.current(); }
 
+    // How far away the head of the wait queue fires, counted from now —
+    // the answer an idle system wants before picking how deep to sleep.
+    // false means nothing is waiting: no deadline exists at all.
+    bool next_due_in(Ticks::tick_t& out) {
+        irq::CriticalGuard guard{lowlevel_driver_};
+        auto head = queue_.head();
+        if (!head) {
+            return false;
+        }
+        const auto remaining =
+            static_cast<Ticks::tick_diff_t>(head->deadline_.tick_ - clock_.current().tick_);
+        out = remaining > 0 ? static_cast<Ticks::tick_t>(remaining) : 0;
+        return true;
+    }
+
     // ISR side call
     void on_elapsed(Ticks::tick_t n) {
         if (n == 0) {
