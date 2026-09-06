@@ -5,14 +5,18 @@
 #include "ZerOS/base/helpful_macros.hpp"
 #include "ZerOS/base/self_list.hpp"
 #include "ZerOS/kernel/clock/kernel.hpp"
+#include "ZerOS/kernel/irq/critical_section.hpp"
 #include "ZerOS/kernel/sched/is_scheduler.hpp"
 #include "ZerOS/kernel/sched/stack_guard.hpp"
 #include "ZerOS/kernel/sched/task_control_block.hpp"
+#include "ZerOS/kernel/sched/types.hpp"
 namespace ZerOS::sched {
 
 template <typename Driver> struct Scheduler {
     // the picker only rides a Switchable driver
     static_assert(Switchable<Driver>, "Scheduler wants a Switchable driver");
+
+    static constexpr clock::Ticks::tick_t kSliceTicks = 10;
 
     constexpr Scheduler() {
         idle_.task_priority_ = kIdlePrio;
@@ -42,6 +46,8 @@ template <typename Driver> struct Scheduler {
             next = &idle_;
         }
         current_ = next;
+        ticks_served_ = 0; // a fresh pick is a fresh slice: no inheriting
+                           // the previous runner's leftover share
         next->state_ = TaskState::Running;
         return next;
     }
@@ -105,6 +111,28 @@ template <typename Driver> struct Scheduler {
 
     [[nodiscard]] base::BorrowedPtr<TCB> fetch_idle_task() { return &idle_; }
 
+    void on_tick() {
+        irq::CriticalGuard g{driver_};
+        if (!current_ || current_ == &idle_) {
+            return;
+        }
+        // Ticks Served
+        ++ticks_served_;
+
+        if (ticks_served_ < kSliceTicks) {
+            return; // OK, back
+        }
+
+        ticks_served_ = 0; // reset, time to sched
+        if (fifo_[current_->task_priority_].empty()) {
+            return; // Dont dry run self
+        }
+
+        push_back(current_);
+        current_->state_ = TaskState::Ready;
+        driver_.request_switch(); // Ask For a switch, wait PendSV
+    }
+
   private:
     static constexpr TaskPriority_t kPriorityLevels = 32;
     static_assert(kPriorityLevels <= 32, "one-word bitmap fast path requires <= 32 levels");
@@ -148,6 +176,7 @@ template <typename Driver> struct Scheduler {
     base::Bitmap<kPriorityLevels> present_{};
     base::SelfList<TCB> fifo_[kPriorityLevels]{};
     [[no_unique_address]] Driver driver_{};
+    std::uint32_t ticks_served_{};
 };
 
 } // namespace ZerOS::sched

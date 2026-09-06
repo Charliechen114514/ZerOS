@@ -256,3 +256,71 @@ TEST_CASE("a zero-span sleep still wakes: no gap between arm and block", "[sched
 
     REQUIRE(s.pick_next().get() == &a.tcb);
 }
+
+TEST_CASE("time slice: same level round-robins by the clock, not by yield", "[sched][slice]") {
+    g_switch_requests = 0;
+    ZerOS::sched::Scheduler<HostSwitchPort> s;
+    Rig a(1, "a"), b(1, "b");
+
+    s.add(&a.tcb);
+    s.add(&b.tcb);
+    REQUIRE(s.pick_next().get() == &a.tcb); // a runs, b waits at the same level
+
+    for (int i = 0; i < 9; ++i) {
+        s.on_tick(); // nine beats: the share is not spent yet
+    }
+    CHECK(g_switch_requests == 0);
+
+    s.on_tick(); // the tenth beat: the slice is spent
+    CHECK(g_switch_requests == 1);        // a switch is pended
+    REQUIRE(s.pick_next().get() == &b.tcb); // and b takes the CPU
+}
+
+TEST_CASE("time slice: a lone same-level runner is left alone", "[sched][slice]") {
+    g_switch_requests = 0;
+    ZerOS::sched::Scheduler<HostSwitchPort> s;
+    Rig a(1, "a");
+
+    s.add(&a.tcb);
+    REQUIRE(s.pick_next().get() == &a.tcb);
+
+    for (int i = 0; i < 50; ++i) { // five whole slices with nobody waiting
+        s.on_tick();
+    }
+    CHECK(g_switch_requests == 0); // no dry-run switching
+    REQUIRE(s.pick_next().get() == &a.tcb);
+}
+
+TEST_CASE("time slice: a fresh pick starts a fresh slice", "[sched][slice]") {
+    // a runs 8 of its 10 beats, gets preempted by someone higher; when it
+    // returns it must NOT inherit its own leftover share. b is the same-level
+    // companion waiting in the ring (a slice only yields when someone waits)
+    g_switch_requests = 0;
+    ZerOS::sched::Scheduler<HostSwitchPort> s;
+    Rig a(1, "a"), b(1, "b"), h(0, "h");
+
+    s.add(&a.tcb);
+    s.add(&b.tcb);
+    s.add(&h.tcb);
+    REQUIRE(s.pick_next().get() == &h.tcb); // higher level took over
+    s.block(&h.tcb);                        // (this pends — wash it off)
+    REQUIRE(s.pick_next().get() == &a.tcb); // a is back on stage, b waits
+    g_switch_requests = 0;
+
+    for (int i = 0; i < 8; ++i) {
+        s.on_tick();
+    }
+    CHECK(g_switch_requests == 0); // 8 beats in, share still good
+    s.block(&a.tcb);               // ...but now a leaves for other reasons
+    s.ready(&a.tcb);               // a rejoins at the TAIL...
+    REQUIRE(s.pick_next().get() == &b.tcb); // ...so b takes over (fresh pick)
+    g_switch_requests = 0;
+
+    for (int i = 0; i < 9; ++i) { // 9 beats must NOT trigger: b inherited
+        s.on_tick();              // NOTHING of a's leftover 8
+    }
+    CHECK(g_switch_requests == 0);
+    s.on_tick(); // ...the 10th does
+    CHECK(g_switch_requests == 1);
+    REQUIRE(s.pick_next().get() == &a.tcb); // and the ring turns to a
+}

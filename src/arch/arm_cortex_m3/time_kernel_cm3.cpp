@@ -1,8 +1,11 @@
 #include "ZerOS/arch/arm_cortex_m3/time_kernel_cm3.hpp"
+#include "ZerOS/arch/arm_cortex_m3/switch.hpp"
 #include <cstdint>
 
 namespace ZerOS::arch::cortex_m3 {
 constinit SystemTimeKernel system_time{};
+extern SystemScheduler system_sched; // lives in switch.cpp; the tick counts
+                                      // its slices, that is wiring's business
 }
 
 namespace {
@@ -25,5 +28,6 @@ void ZerOS::arch::cortex_m3::init_time(std::uint32_t cycles_per_tick) {
 }
 
 extern "C" void SysTick_Handler() {
-    ZerOS::arch::cortex_m3::system_time.on_elapsed(1);
+    ZerOS::arch::cortex_m3::system_time.on_elapsed(1); // report the time...
+    ZerOS::arch::cortex_m3::system_sched.on_tick();    // ...and the beat (slice)
 }

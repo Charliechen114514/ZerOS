@@ -61,6 +61,33 @@ void timer_ping(void*) {
     ZerOS::board::print("timer: fired (tick context, no task spent)\r\n");
 }
 
+// 'r' spawns two NEVER-SLEEPING spinners on the SAME level for ~3 seconds.
+// Without time slicing one of them would starve the other; the slice forces
+// them to take turns — the interleaved output IS the feature.
+constinit ZerOS::sched::TCBStorage tcb_rr1{};
+constinit ZerOS::sched::TCBStorage tcb_rr2{};
+alignas(8) constinit std::uint32_t stack_rr1[64] = {};
+alignas(8) constinit std::uint32_t stack_rr2[64] = {};
+bool g_rr_spawned = false;
+
+void spinner(void* tag) {
+    const auto* line = static_cast<const char*>(tag);
+    const auto deadline = ThisTask::now().tick_ + 3000;
+    auto next_report = ThisTask::now().tick_;
+    for (;;) {
+        const auto now = ThisTask::now().tick_;
+        if (now >= deadline) {
+            break; // three seconds of proof is enough
+        }
+        if (now >= next_report) {
+            ZerOS::board::print(line);
+            next_report += 500;
+        }
+        // pure spinning, zero sleeps — the scheduler does the fairness
+    }
+    ThisTask::block(); // self-retire: sleep with nobody to wake me
+}
+
 // ---- the priority-inversion theater ----
 // L (prio 2) owns the lock and busy-holds it; M (prio 1) hogs the CPU doing
 // unrelated work; H (prio 0) comes for the lock 100ms late. WITHOUT
@@ -146,6 +173,23 @@ void task_c(void*) {
         } else if (c == 't') {
             ZerOS::board::print("c: timer armed, 300ms\r\n");
             g_demo_timer.oneshot(Milliseconds{300}, timer_ping, nullptr);
+        } else if (c == 'r') {
+            if (!g_rr_spawned) {
+                g_rr_spawned = true;
+                auto& r1 = ZerOS::task::named("rr1")
+                               .prio(3)
+                               .stack(stack_rr1)
+                               .entry(spinner, const_cast<char*>("rr1 alive\r\n"))
+                               .spawn_into(tcb_rr1);
+                auto& r2 = ZerOS::task::named("rr2")
+                               .prio(3)
+                               .stack(stack_rr2)
+                               .entry(spinner, const_cast<char*>("rr2 alive\r\n"))
+                               .spawn_into(tcb_rr2);
+                spawn(r1);
+                spawn(r2);
+                ZerOS::board::print("c: spinner pair out, 3s of fairness\r\n");
+            }
         } else {
             ZerOS::board::print("got '");
             ZerOS::board::uart1_putc(c);
