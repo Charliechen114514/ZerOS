@@ -43,14 +43,12 @@ jobs:
           curl -sSL "$XPACK_ARM_GCC" | tar xz -C /opt/xpack
           echo "/opt/xpack/xpack-arm-none-eabi-gcc-15.2.1-1.1/bin" >> "$GITHUB_PATH"
 
-      - name: renode
+      - name: renode 1.16.1 (GitHub portable, pinned — matches local)
         run: |
-          sudo apt-get update
-          sudo apt-get install -y renode || {
-            wget -q https://dl.renode.io/scripts/renode-install.sh
-            chmod +x renode-install.sh && sudo ./renode-install.sh /opt/renode
-            echo /opt/renode >> "$GITHUB_PATH"
-          }
+          mkdir -p /opt/renode
+          curl -sSL https://github.com/renode/renode/releases/download/v1.16.1/renode-1.16.1.linux-portable.tar.gz \
+            | tar xz --strip-components=1 -C /opt/renode
+          echo /opt/renode >> "$GITHUB_PATH"
 
       - name: the four gates
         env:
