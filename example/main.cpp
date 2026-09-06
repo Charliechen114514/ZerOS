@@ -40,12 +40,19 @@ constinit ZerOS::sched::TCBStorage tcb_holder{};
 constinit ZerOS::sched::TCBStorage tcb_urgent{};
 constinit ZerOS::sched::TCBStorage tcb_bully{};
 
-// the event side lives in the semaphore (a unit arriving BEFORE the task
-// sleeps survives — the hand-rolled ready() flag could not do that);
-// the byte itself is only the payload, still a one-slot mailbox
-constinit ZerOS::sync::Semaphore g_rx_sem{0};
-constinit ZerOS::arch::cortex_m3::CortexM3CriticalSection mailbox_lock{};
-char g_rx_byte = 0;
+// the RX mailbox: a real queue now — a burst of bytes survives intact,
+// no slot sharing, no hand-rolled flags
+constinit ZerOS::sync::Queue<char, 16> g_rx_queue{};
+
+// the ISR bottom half: 'd' drops a JOB here — the worker naps inside the
+// job (something the interrupt could never dare), then finishes it
+constinit ZerOS::sync::Worker g_worker{};
+
+void heavy_job(void*) {
+    ZerOS::board::print("worker: got the job, napping 200ms\r\n");
+    ThisTask::sleep_for(Milliseconds{200}); // legal HERE — this is the whole point
+    ZerOS::board::print("worker: job done\r\n");
+}
 
 // ---- the priority-inversion theater ----
 // L (prio 2) owns the lock and busy-holds it; M (prio 1) hogs the CPU doing
@@ -114,15 +121,14 @@ void smash_canary() {
 }
 
 // event-sleeper: woken by the RX interrupt, not by the clock.
-// 'x' = kill the chip (hard fault demo), 'y' = overflow demo
+// 'x' = kill the chip (hard fault demo), 'y' = canary demo
 void task_c(void*) {
     for (;;) {
-        g_rx_sem.acquire();
-        char c;
-        {
-            ZerOS::irq::CriticalGuard guard{mailbox_lock};
-            c = g_rx_byte;
+        auto got = g_rx_queue.receive_one(); // wait forever — mailbox posture
+        if (!got.has_value()) {
+            continue;
         }
+        const char c = *got;
         if (c == 'x') {
             ZerOS::board::print("c: executing an undefined instruction, goodbye\r\n");
             asm volatile("udf #0"); // CPU-level fault: no simulator leniency here
@@ -140,19 +146,19 @@ void task_c(void*) {
 
 } // namespace
 
-// RXNE (and ORE, sharing RXNEIE): park the byte, hand the event over.
-// release() is ISR-safe by construction (BASEPRI inside, switch pended,
-// never switched here)
+// RXNE (and ORE, sharing RXNEIE): drop the byte into the queue. post()
+// is ISR-safe by construction and never blocks; a full ring drops the
+// byte (16 deep is plenty for a human typing)
 extern "C" void USART1_IRQHandler() {
     if ((USART1->SR & USART_SR_RXNE) == 0) {
         return;
     }
     const char c = ZerOS::board::uart1_getc();
-    {
-        ZerOS::irq::CriticalGuard guard{mailbox_lock};
-        g_rx_byte = c;
+    if (c == 'd') { // bottom half: the interrupt drops a JOB, not a byte
+        static_cast<void>(g_worker.defer(heavy_job, nullptr));
+        return;
     }
-    g_rx_sem.release();
+    static_cast<void>(g_rx_queue.post(c));
 }
 
 int main() {
@@ -211,6 +217,7 @@ int main() {
     spawn(holder);
     spawn(urgent);
     spawn(bully);
+    spawn(g_worker.setup(2, "worker"));
 
     ZerOS::arch::cortex_m3::init_time(SystemCoreClock / 1000);
     start_scheduler(idle_stack);
