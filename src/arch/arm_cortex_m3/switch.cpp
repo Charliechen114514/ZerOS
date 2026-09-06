@@ -38,9 +38,17 @@ void fabricate_frame(ZerOS::sched::TCB& t) {
 
 constinit SystemScheduler system_sched{};
 
-// RAM-RESIDENT: the hot switch path runs with zero flash wait states
-// (72MHz + 2WS means every flash fetch is 3 cycles; RAM is 1 cycle)
+// Switch hot path stays in FLASH (not .ramfunc): real-hardware measurement
+// (documents/notes/perf_1.md, round 3 & 5) shows RAM placement is a
+// NEGATIVE optimization on STM32F103 @72MHz — the flash prefetch buffer
+// beats zero-wait-state RAM by 16 cycles. If a future chip/config changes
+// the tradeoff, re-measure before re-enabling.
+// #define ZEROS_SWITCH_IN_RAM  (kept for reference; do NOT enable on F103)
+#ifdef ZEROS_SWITCH_IN_RAM
 #define ZEROS_RAMFUNC __attribute__((section(".ramfunc"), noinline))
+#else
+#define ZEROS_RAMFUNC
+#endif
 
 extern "C" ZEROS_RAMFUNC std::uint32_t* context_switch(std::uint32_t* saved_sp) {
     using TaskGuardHelper = task::TaskGuardHelper;
