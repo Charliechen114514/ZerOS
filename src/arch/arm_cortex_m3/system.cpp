@@ -60,6 +60,14 @@ void CortexM3System::reprioritize(base::BorrowedPtr<sched::TCB> t,
     system_sched.reprioritize(t, new_prio);
 }
 
+void CortexM3System::arm_timer(base::BorrowedPtr<clock::TimeWaiter> w, clock::Ticks::tick_t span) {
+    system_time.call_after_span(w, span);
+}
+
+void CortexM3System::cancel_timer(base::BorrowedPtr<clock::TimeWaiter> w) {
+    system_time.cancel(w);
+}
+
 void CortexM3System::lock() {
     guard_.lock();
 }

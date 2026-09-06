@@ -54,6 +54,13 @@ void heavy_job(void*) {
     ZerOS::board::print("worker: job done\r\n");
 }
 
+// 't' arms a one-shot reminder — no task is consumed while it waits
+constinit ZerOS::clock::Timer g_demo_timer{};
+
+void timer_ping(void*) {
+    ZerOS::board::print("timer: fired (tick context, no task spent)\r\n");
+}
+
 // ---- the priority-inversion theater ----
 // L (prio 2) owns the lock and busy-holds it; M (prio 1) hogs the CPU doing
 // unrelated work; H (prio 0) comes for the lock 100ms late. WITHOUT
@@ -136,6 +143,9 @@ void task_c(void*) {
             ZerOS::board::print("c: smashing my canary\r\n");
             smash_canary();
             ThisTask::sleep_for(Milliseconds{2}); // next switch patrols and reports
+        } else if (c == 't') {
+            ZerOS::board::print("c: timer armed, 300ms\r\n");
+            g_demo_timer.oneshot(Milliseconds{300}, timer_ping, nullptr);
         } else {
             ZerOS::board::print("got '");
             ZerOS::board::uart1_putc(c);

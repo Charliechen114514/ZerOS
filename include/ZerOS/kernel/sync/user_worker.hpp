@@ -12,6 +12,7 @@
  *
  */
 #pragma once
+#include "ZerOS/base/callback.hpp"
 #include "ZerOS/base/check.hpp"
 #include "ZerOS/kernel/sched/task.hpp"
 #include "ZerOS/kernel/sched/task_control_block.hpp"
@@ -20,22 +21,16 @@
 
 namespace ZerOS::sync {
 /**
- * @brief Just A work, which execute as a plain functions
+ * @brief Just A work — a run-to-completion plain function. It shares its
+ * storage with every "call back later" in the house: base::Callback.
  *
  */
-struct Work {
-    using WorkFunc = void (*)(void*);
-    using WorkFuncArgs = void*;
-    WorkFunc work_func;
-    WorkFuncArgs args;
-
-    static void InvokeSelf(Work& w) { w.work_func(w.args); }
-};
+using Work = base::Callback;
 
 template <ZerOS::system::SystemContext System, std::size_t Depth = 8, std::size_t StackWords = 64>
 struct WorkBase {
     // defer
-    bool defer(Work::WorkFunc func, Work::WorkFuncArgs arg) noexcept {
+    bool defer(base::Callback::Fn func, void* arg) noexcept {
         ZerOS::debug::Check(task_, "defer before setup");
         return queue_.post(Work{func, arg}) == QueueError::Ok;
     }
@@ -52,7 +47,7 @@ struct WorkBase {
         {
             auto user_work = work_base_itself.queue_.receive_one();
             if (user_work) {
-                Work::InvokeSelf(*user_work);
+                user_work->invoke();
             }
         }
     };

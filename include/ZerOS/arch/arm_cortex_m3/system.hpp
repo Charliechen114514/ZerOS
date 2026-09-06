@@ -27,6 +27,8 @@ class CortexM3System {
     [[nodiscard]] clock::Ticks now();
     [[nodiscard]] sched::TaskPriority_t prio(base::BorrowedPtr<sched::TCB> t);
     void reprioritize(base::BorrowedPtr<sched::TCB> t, sched::TaskPriority_t new_prio);
+    void arm_timer(base::BorrowedPtr<clock::TimeWaiter> w, clock::Ticks::tick_t span);
+    void cancel_timer(base::BorrowedPtr<clock::TimeWaiter> w);
     void lock();
     void unlock();
 

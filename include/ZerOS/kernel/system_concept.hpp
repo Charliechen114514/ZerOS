@@ -9,6 +9,7 @@
 namespace ZerOS::system {
 template <typename System>
 concept SystemContext = requires(System& s, base::BorrowedPtr<sched::TCB> t,
+                                 base::BorrowedPtr<clock::TimeWaiter> w,
                                  clock::Ticks::tick_t span,
                                  sched::TaskPriority_t prio) {
     { s.current_task() } -> std::same_as<base::BorrowedPtr<sched::TCB>>;
@@ -20,6 +21,8 @@ concept SystemContext = requires(System& s, base::BorrowedPtr<sched::TCB> t,
     { s.self() } -> std::same_as<System&>;
     { s.prio(t) } -> std::same_as<sched::TaskPriority_t>;  // PI wants to read
     { s.reprioritize(t, prio) };                            // ...and to lift
+    { s.arm_timer(w, span) };   // book a waiter on the clock ledger (timers)
+    { s.cancel_timer(w) };      // ...and strike it off (idempotent)
     s.lock();
     s.unlock();
 };

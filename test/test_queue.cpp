@@ -68,6 +68,8 @@ struct FakeSys {
     void reprioritize(BorrowedPtr<TCB> t, ZerOS::sched::TaskPriority_t p) {
         sched_->reprioritize(t, p);
     }
+    void arm_timer(BorrowedPtr<TimeWaiter> w, Ticks::tick_t span) { time_->call_after_span(w, span); }
+    void cancel_timer(BorrowedPtr<TimeWaiter> w) { time_->cancel(w); }
     void lock() {}
     void unlock() {}
 };

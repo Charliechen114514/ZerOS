@@ -71,6 +71,8 @@ struct FakeSys {
     Ticks now() { return time_->current(); }
     TaskPriority_t prio(BorrowedPtr<TCB> t) { return sched_->prio(t); }
     void reprioritize(BorrowedPtr<TCB> t, TaskPriority_t p) { sched_->reprioritize(t, p); }
+    void arm_timer(BorrowedPtr<TimeWaiter> w, Ticks::tick_t span) { time_->call_after_span(w, span); }
+    void cancel_timer(BorrowedPtr<TimeWaiter> w) { time_->cancel(w); }
     void lock() {}
     void unlock() {}
 };
