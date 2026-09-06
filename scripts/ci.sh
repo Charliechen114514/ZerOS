@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# ZerOS CI — the four gates. Run this before every commit:
-#   ./scripts/ci.sh            all gates
-#   ./scripts/ci.sh host       one gate by name: host | hygiene | size | smoke
-# Any gate failing turns the exit code non-zero. CI is just this script
-# run on a clean checkout; locally it guards the working tree.
+# ZerOS CI — runs all checks. Use before every commit:
+#   ./scripts/ci.sh            everything
+#   ./scripts/ci.sh smoke      just one: host | hygiene | size | smoke
+# Any check failing turns the exit code non-zero. The GitHub workflow
+# runs this same script on a clean checkout.
 
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -19,20 +19,20 @@ NCPU=$(nproc)
 FLASH_LIMIT=12288
 RAM_LIMIT=6144
 
-fail() { echo "GATE FAILED: $1" >&2; exit 1; }
-gate() { echo; echo "====[ $1 ]===="; }
+fail() { echo "FAILED: $1" >&2; exit 1; }
+banner() { echo; echo "====[ $1 ]===="; }
 
 # ---------------------------------------------------------------- host ----
-gate_host() {
-    gate "1/4 host tests"
+check_host() {
+    banner "1/4 host unit tests"
     cmake -B "$HOST_DIR" -DZEROS_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Debug >/dev/null
     cmake --build "$HOST_DIR" -j"$NCPU" 2>&1 | grep -E 'error|warning' && fail "host build" || true
     ctest --test-dir "$HOST_DIR" --output-on-failure
 }
 
 # -------------------------------------------------------------- hygiene ----
-gate_hygiene() {
-    gate "2/4 include hygiene"
+check_hygiene() {
+    banner "2/4 include hygiene"
     # kernel headers must not know boards or vendors
     if grep -rnE '^\s*#\s*include.*(src/board|third_party|stm32)' include/ZerOS/kernel/; then
         fail "kernel purity: board/vendor include found in include/ZerOS/kernel/"
@@ -49,8 +49,8 @@ gate_hygiene() {
 }
 
 # ----------------------------------------------------------------- size ----
-gate_size() {
-    gate "3/4 cross build + size gates (flash ${FLASH_LIMIT}B / ram ${RAM_LIMIT}B)"
+check_size() {
+    banner "3/4 cross build + size limits (flash ${FLASH_LIMIT}B / ram ${RAM_LIMIT}B)"
     cmake -B "$ARM_DIR" -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN" >/dev/null
     cmake --build "$ARM_DIR" -j"$NCPU" 2>&1 | grep -E 'error|warning' && fail "cross build" || true
 
@@ -68,8 +68,8 @@ gate_size() {
 }
 
 # ---------------------------------------------------------------- smoke ----
-gate_smoke() {
-    gate "4/4 renode behavior smoke (each demo must SAY its line)"
+check_smoke() {
+    banner "4/4 renode behavior check (each demo must SAY its line)"
     # the one string each demo owes us when it works; testaments runs calm
     # (its 'x'/'y' death scripts stay manual, see docs/simulation.md)
     declare -A MARK=(
@@ -82,20 +82,44 @@ gate_smoke() {
         [testaments]="alive"
         [round_robin]="rr2 alive"
     )
+
+    # all demos are independent simulations — run them in parallel
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    local pids=()
     for demo in "${!MARK[@]}"; do
         echo "--- run-$demo (expect: ${MARK[$demo]})"
-        out=$(cmake --build "$ARM_DIR" --target "run-$demo" -j"$NCPU" 2>&1 | sed 's/\x1b\[[0-9;]*m//g')
-        echo "$out" | grep -q "${MARK[$demo]}" || { echo "$out" | tail -5; fail "run-$demo missed: ${MARK[$demo]}"; }
+        (
+            out=$(cmake --build "$ARM_DIR" --target "run-$demo" -j"$NCPU" 2>&1 \
+                  | sed 's/\x1b\[[0-9;]*m//g')
+            echo "$out" > "$tmpdir/$demo.log"
+        ) &
+        pids+=($!)
     done
+
+    local failed=0
+    for i in "${!pids[@]}"; do
+        wait "${pids[$i]}" || true
+    done
+
+    for demo in "${!MARK[@]}"; do
+        if ! grep -q "${MARK[$demo]}" "$tmpdir/$demo.log" 2>/dev/null; then
+            echo "--- $demo FAILED (expected: ${MARK[$demo]})" >&2
+            tail -5 "$tmpdir/$demo.log" 2>/dev/null >&2
+            failed=1
+        fi
+    done
+    rm -rf "$tmpdir"
+    [ "$failed" -eq 0 ] || fail "one or more demos missed their lines"
     echo "all ${#MARK[@]} demos spoke their lines"
 }
 
 case "${1:-all}" in
-    host) gate_host ;;
-    hygiene) gate_hygiene ;;
-    size) gate_size ;;
-    smoke) gate_smoke ;;
-    all) gate_host; gate_hygiene; gate_size; gate_smoke
-         echo; echo "ALL GATES GREEN" ;;
+    host) check_host ;;
+    hygiene) check_hygiene ;;
+    size) check_size ;;
+    smoke) check_smoke ;;
+    all) check_host; check_hygiene; check_size; check_smoke
+         echo; echo "ALL CHECKS PASSED" ;;
     *) echo "usage: $0 [host|hygiene|size|smoke|all]" >&2; exit 2 ;;
 esac
